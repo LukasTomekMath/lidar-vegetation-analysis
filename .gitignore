@@ -1,0 +1,11 @@
+# Ignore everything ...
+*
+# ... but these file types
+!.gitignore
+!src
+!*.cpp
+!*.h
+!*.py
+!*.db
+!CmakeLists.txt
+!libs.zip
