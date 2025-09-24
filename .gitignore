@@ -3,6 +3,7 @@
 # ... but these file types
 !.gitignore
 !src
+!python
 !*.cpp
 !*.h
 !*.py
