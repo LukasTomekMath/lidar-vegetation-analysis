@@ -547,8 +547,9 @@ void DataHandler::exportMetrics(std::string fileName)
 
 	// fileName = std::string("../../").append(fileName);
 	//fileName = std::string("../../_exportedTIFs/").append(fileName);
-	fileName = std::string(".\\") + fileName.append(".tif");
+	// fileName = std::string(".\\") + fileName.append(".tif");
 	// fileName += std::string("_h=") + std::to_string(m_areaInfo.desiredPixelSize) + std::string("m");
+	fileName = "../../../raster_metrics/"+ fileName + ".tif";
 
 	std::cout << "Exporting metrics..." << std::endl;
 	// load drivers
