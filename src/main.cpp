@@ -20,7 +20,7 @@
 #include "libs/LAStools_include/LASlib/laswriter.hpp"
 
 // Data handler include
-#include "diplomovka_TH.h"
+#include "PointCloudMetrics.h"
 
 namespace fs = std::filesystem;
 
