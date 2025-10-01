@@ -4,9 +4,11 @@
 !.gitignore
 !src
 !python
+!mathematica
 !*.cpp
 !*.h
 !*.py
 !*.db
+!*.nb
 !CmakeLists.txt
 !libs.zip
