@@ -20,8 +20,8 @@ void DataHandler::setupAreaInfo(const std::string& lazFileName, const double upp
 {
 	m_areaInfo.width_n = 2000;
 	m_areaInfo.height_n = 2000;
-	m_areaInfo.width = 200;
-	m_areaInfo.height = 200;
+	m_areaInfo.width = 1000;
+	m_areaInfo.height = 1000;
 	m_areaInfo.desiredPixelSize = m_areaInfo.width_n / m_areaInfo.width;;
 	m_areaInfo.xLeft = upperLeftX;
 	m_areaInfo.yLeft = upperLeftY;
@@ -34,20 +34,38 @@ bool DataHandler::performCalculation()
 	// std::cout << "width: " << m_areaInfo.width << "\nheight: " << m_areaInfo.height << "\n";
 	// std::cout << "(x,y): [" << m_areaInfo.xLeft << ", " << m_areaInfo.yLeft << "]\n";
 
+	auto reading_start = std::chrono::high_resolution_clock::now();
+
 	if (!readLazFile())
 	{
 		std::cout << "failed to read '" << m_areaInfo.lazFileName << "' file, computation will not proceed further" << std::endl;
 		return false;
 	}
 
-	normalizePoints();
+	auto reading_end = std::chrono::high_resolution_clock::now();
+	m_times.readTime = std::chrono::duration_cast<std::chrono::milliseconds>(reading_end - reading_start).count() / 1000.0;
 
+	auto normalization_start = std::chrono::high_resolution_clock::now();
+	normalizePoints();
+	auto normalization_end = std::chrono::high_resolution_clock::now();
+	m_times.normalizationTime = std::chrono::duration_cast<std::chrono::milliseconds>(normalization_end - normalization_start).count() / 1000.0;
+
+	auto redistribution_start = std::chrono::high_resolution_clock::now();
 	redistributePoints();
+	auto redistribution_end = std::chrono::high_resolution_clock::now();
+	m_times.redistributionTime = std::chrono::duration_cast<std::chrono::milliseconds>(redistribution_end - redistribution_start).count() / 1000.0;
 
 	//computation:
+	auto metrics_start = std::chrono::high_resolution_clock::now();
 	computeMetrics();
+	auto metrics_end = std::chrono::high_resolution_clock::now();
+	m_times.metricsTime = std::chrono::duration_cast<std::chrono::milliseconds>(metrics_end - metrics_start).count() / 1000.0;
 
+	auto export_start = std::chrono::high_resolution_clock::now();
 	exportMetrics(m_areaName);
+	auto export_end = std::chrono::high_resolution_clock::now();
+	m_times.exportTime = std::chrono::duration_cast<std::chrono::milliseconds>(export_end - export_start).count() / 1000.0;
+
 
 	return true;
 }

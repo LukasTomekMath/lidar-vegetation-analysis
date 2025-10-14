@@ -39,6 +39,8 @@ int main(int argc, char** argv)
 	int nprocs = 6;
 	omp_set_num_threads(nprocs);
 
+	std::ofstream stats_file("processing_stats.txt", std::ios::trunc);
+
 	if (argc != 2)
 	{
 		std::cout << "Expected path to data directory or -h/--help argument." << std::endl;
@@ -57,29 +59,71 @@ int main(int argc, char** argv)
 
 	std::string dataDirectoryPath = inputArg;
 	std::cout << "Scanning for .laz files in '" << dataDirectoryPath << "'..." << std::endl;
-	std::vector<std::string> fileNameParts;
-	double upperLeftX = -1.0;
-	double upperLeftY = -1.0;
+	//vytvaranie vektora so subormi na paralelne spracovanie
+	std::vector<fs::directory_entry> files;
 	for (const auto& file : fs::directory_iterator(dataDirectoryPath))
 	{
+		files.push_back(file);
+	}
+
+#pragma omp parallel for schedule(dynamic)
+	for (int i = 0; i < static_cast<int>(files.size()); ++i)
+	{
+		auto overall_start = std::chrono::high_resolution_clock::now(); //celkovy cas
+
+		std::vector<std::string> fileNameParts;
+		double upperLeftX = -1.0;
+		double upperLeftY = -1.0;
+
 		DataHandler* handler = new DataHandler;
-		std::string lazFileName = file.path().filename().string();
+		std::string lazFileName = files[i].path().filename().string();
 		handler->setAreaName(std::regex_replace(lazFileName, std::regex("(\\.laz)"), ""));
 		splitString(handler->areaName(), fileNameParts);
 
 		for (const auto& part : fileNameParts)
 		{
+#pragma omp critical
 			std::cout << "file part: " << part << std::endl;
 		}
+
 		upperLeftX = std::stod(fileNameParts[1]);
 		upperLeftY = std::stod(fileNameParts[2]) + 2000.0;
+
+#pragma omp critical
 		std::cout << "Processing file '" << lazFileName << "', upper left coords [" << static_cast<int>(upperLeftX) << ", " << static_cast<int>(upperLeftY) << "]..." << std::endl;
 
-		handler->setupAreaInfo(file.path().string(), upperLeftX, upperLeftY);
+		handler->setupAreaInfo(files[i].path().string(), upperLeftX, upperLeftY);
+
+#pragma omp critical
 		std::cout << "area name: " << handler->areaName() << std::endl;
 		handler->performCalculation();
 
+		ProcessingTimes times = handler->getProcessingTimes();
+
+		auto dealloc_start = std::chrono::high_resolution_clock::now();
 		delete handler;
+		auto dealloc_end = std::chrono::high_resolution_clock::now();
+
+
+		auto overall_end = std::chrono::high_resolution_clock::now();
+
+		double deallocationTime = std::chrono::duration_cast<std::chrono::milliseconds>(dealloc_end - dealloc_start).count() / 1000.0;
+		double overallTime = std::chrono::duration_cast<std::chrono::milliseconds>(overall_end - overall_start).count() / 1000.0;
+
+#pragma omp critical
+		{
+			std::ofstream stats_file("processing_stats.txt", std::ios::app);
+			stats_file << "Tile: " << lazFileName << "\n";
+			stats_file << "Reading time: " << times.readTime << " s\n";
+			stats_file << "Normalization time: " << times.normalizationTime << " s\n";
+			stats_file << "Redistribution time: " << times.redistributionTime << " s\n";
+			stats_file << "Metrics time: " << times.metricsTime << " s\n";
+			stats_file << "Export time: " << times.exportTime << " s\n";
+			stats_file << "Deallocation time: " << deallocationTime << " s\n";
+			stats_file << "Overall time: " << overallTime << " s\n";
+			stats_file << "-----------------------------\n";
+		}
+
 		fileNameParts.clear();
 	}
 }
