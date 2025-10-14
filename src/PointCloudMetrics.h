@@ -60,6 +60,14 @@
 
 #define nMetrics 23
 
+struct ProcessingTimes {
+	double readTime = 0.0;
+	double normalizationTime = 0.0;
+	double redistributionTime = 0.0;
+	double metricsTime = 0.0;
+	double exportTime = 0.0;
+};
+
 struct AreaInfo
 {
 	// Grid size for normalization (should be 1x1m per pixel).
@@ -111,8 +119,10 @@ public:
 	bool performCalculation();
 	void setAreaName(const std::string &name) { m_areaName = name; }
 	const std::string areaName() { return m_areaName;}
+	const ProcessingTimes& getProcessingTimes() { return m_times; }
 
 private:
+	ProcessingTimes m_times;
 	AreaInfo m_areaInfo;
 	std::vector<PixelPoints> m_meshPixels;
 	std::vector<PixelPoints> m_meshPixelsRedistributed;
