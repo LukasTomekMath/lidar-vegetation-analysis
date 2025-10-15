@@ -5,10 +5,14 @@
 !src
 !python
 !mathematica
+!matlab
 !*.cpp
 !*.h
 !*.py
 !*.db
 !*.nb
+!*.m
+!*.mlapp
+!*.txt
 !CmakeLists.txt
 !libs.zip
