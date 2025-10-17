@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <random>
 #include <ctime>
+#include <filesystem>
 
 #include "stat_functions.h"
 
@@ -60,12 +61,17 @@
 
 #define nMetrics 23
 
-struct ProcessingTimes {
+struct OutputData {
+	//casy spracovania jednotlivych ukonov
 	double readTime = 0.0;
 	double normalizationTime = 0.0;
 	double redistributionTime = 0.0;
 	double metricsTime = 0.0;
 	double exportTime = 0.0;
+
+	//info o subore do vystupu
+	int nPointsInMesh = 0;
+	std::uint64_t fileSizeBytes = 0;
 };
 
 struct AreaInfo
@@ -119,10 +125,10 @@ public:
 	bool performCalculation();
 	void setAreaName(const std::string &name) { m_areaName = name; }
 	const std::string areaName() { return m_areaName;}
-	const ProcessingTimes& getProcessingTimes() { return m_times; }
+	const OutputData& getProcessingTimes() { return m_output; }
 
 private:
-	ProcessingTimes m_times;
+	OutputData m_output;
 	AreaInfo m_areaInfo;
 	std::vector<PixelPoints> m_meshPixels;
 	std::vector<PixelPoints> m_meshPixelsRedistributed;

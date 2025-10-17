@@ -41,30 +41,31 @@ bool DataHandler::performCalculation()
 		std::cout << "failed to read '" << m_areaInfo.lazFileName << "' file, computation will not proceed further" << std::endl;
 		return false;
 	}
+	m_output.fileSizeBytes = std::filesystem::file_size(m_areaInfo.lazFileName);
 
 	auto reading_end = std::chrono::high_resolution_clock::now();
-	m_times.readTime = std::chrono::duration_cast<std::chrono::milliseconds>(reading_end - reading_start).count() / 1000.0;
+	m_output.readTime = std::chrono::duration_cast<std::chrono::milliseconds>(reading_end - reading_start).count() / 1000.0;
 
 	auto normalization_start = std::chrono::high_resolution_clock::now();
 	normalizePoints();
 	auto normalization_end = std::chrono::high_resolution_clock::now();
-	m_times.normalizationTime = std::chrono::duration_cast<std::chrono::milliseconds>(normalization_end - normalization_start).count() / 1000.0;
+	m_output.normalizationTime = std::chrono::duration_cast<std::chrono::milliseconds>(normalization_end - normalization_start).count() / 1000.0;
 
 	auto redistribution_start = std::chrono::high_resolution_clock::now();
 	redistributePoints();
 	auto redistribution_end = std::chrono::high_resolution_clock::now();
-	m_times.redistributionTime = std::chrono::duration_cast<std::chrono::milliseconds>(redistribution_end - redistribution_start).count() / 1000.0;
+	m_output.redistributionTime = std::chrono::duration_cast<std::chrono::milliseconds>(redistribution_end - redistribution_start).count() / 1000.0;
 
 	//computation:
 	auto metrics_start = std::chrono::high_resolution_clock::now();
 	computeMetrics();
 	auto metrics_end = std::chrono::high_resolution_clock::now();
-	m_times.metricsTime = std::chrono::duration_cast<std::chrono::milliseconds>(metrics_end - metrics_start).count() / 1000.0;
+	m_output.metricsTime = std::chrono::duration_cast<std::chrono::milliseconds>(metrics_end - metrics_start).count() / 1000.0;
 
 	auto export_start = std::chrono::high_resolution_clock::now();
 	exportMetrics(m_areaName);
 	auto export_end = std::chrono::high_resolution_clock::now();
-	m_times.exportTime = std::chrono::duration_cast<std::chrono::milliseconds>(export_end - export_start).count() / 1000.0;
+	m_output.exportTime = std::chrono::duration_cast<std::chrono::milliseconds>(export_end - export_start).count() / 1000.0;
 
 
 	return true;
@@ -76,6 +77,7 @@ bool DataHandler::readLazFile()
 	LASreader* reader = nullptr;
 	std::string fileName = "";
 	int nPointsInMesh = 0;
+
 
 	int nPixels = m_areaInfo.width_n * m_areaInfo.height_n;
 	m_meshPixels.resize(nPixels, PixelPoints());
@@ -168,6 +170,7 @@ bool DataHandler::readLazFile()
 	delete reader;
 
 	std::cout << "nPointsInMesh: " << nPointsInMesh << "\n";
+	m_output.nPointsInMesh = nPointsInMesh;
 	
 	auto end = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);

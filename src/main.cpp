@@ -36,10 +36,11 @@ void splitString(std::string input, std::vector<std::string>& output)
 
 int main(int argc, char** argv)
 {
-	int nprocs = 6;
+	int nprocs = 12;
 	omp_set_num_threads(nprocs);
 
-	std::ofstream stats_file("processing_stats.txt", std::ios::trunc);
+	std::ofstream csv("processing_stats.csv", std::ios::trunc);
+	csv << "Tile,File_MB,PointsInMesh,ReadTime_s,NormalizationTime_s,RedistributionTime_s,MetricsTime_s,ExportTime_s,DeallocationTime_s,OverallTime_s\n";
 
 	if (argc != 2)
 	{
@@ -98,7 +99,7 @@ int main(int argc, char** argv)
 		std::cout << "area name: " << handler->areaName() << std::endl;
 		handler->performCalculation();
 
-		ProcessingTimes times = handler->getProcessingTimes();
+		OutputData out = handler->getProcessingTimes();
 
 		auto dealloc_start = std::chrono::high_resolution_clock::now();
 		delete handler;
@@ -112,16 +113,16 @@ int main(int argc, char** argv)
 
 #pragma omp critical
 		{
-			std::ofstream stats_file("processing_stats.txt", std::ios::app);
-			stats_file << "Tile: " << lazFileName << "\n";
-			stats_file << "Reading time: " << times.readTime << " s\n";
-			stats_file << "Normalization time: " << times.normalizationTime << " s\n";
-			stats_file << "Redistribution time: " << times.redistributionTime << " s\n";
-			stats_file << "Metrics time: " << times.metricsTime << " s\n";
-			stats_file << "Export time: " << times.exportTime << " s\n";
-			stats_file << "Deallocation time: " << deallocationTime << " s\n";
-			stats_file << "Overall time: " << overallTime << " s\n";
-			stats_file << "-----------------------------\n";
+			csv << lazFileName << ','
+				<< (out.fileSizeBytes / (1024.0 * 1024.0)) << ','
+				<< out.nPointsInMesh << ','
+				<< out.readTime << ','
+				<< out.normalizationTime << ','
+				<< out.redistributionTime << ','
+				<< out.metricsTime << ','
+				<< out.exportTime << ','
+				<< deallocationTime << ','
+				<< overallTime << '\n';
 		}
 
 		fileNameParts.clear();
