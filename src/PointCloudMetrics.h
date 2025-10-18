@@ -125,7 +125,7 @@ public:
 	bool performCalculation();
 	void setAreaName(const std::string &name) { m_areaName = name; }
 	const std::string areaName() { return m_areaName;}
-	const OutputData& getProcessingTimes() { return m_output; }
+	const OutputData& getOutputData() { return m_output; }
 
 private:
 	OutputData m_output;

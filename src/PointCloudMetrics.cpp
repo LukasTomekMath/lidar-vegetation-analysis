@@ -8,7 +8,7 @@ DataHandler::DataHandler()
 
 DataHandler::~DataHandler()
 {
-	std::cout << "Destructor\n";
+	//std::cout << "Destructor\n";
 
 	for (size_t i = 0; i < m_metrics.size(); i++)
 	{
@@ -95,7 +95,7 @@ bool DataHandler::readLazFile()
 	}
 
 	fileName = lasReadOpener.get_file_name();
-	std::cout << "trying to read file " << m_areaInfo.lazFileName << std::endl;
+	//std::cout << "trying to read file " << m_areaInfo.lazFileName << std::endl;
 
 	reader = lasReadOpener.open();
 	if (reader == nullptr)
@@ -169,13 +169,13 @@ bool DataHandler::readLazFile()
 	reader->close();
 	delete reader;
 
-	std::cout << "nPointsInMesh: " << nPointsInMesh << "\n";
+	//std::cout << "nPointsInMesh: " << nPointsInMesh << "\n";
 	m_output.nPointsInMesh = nPointsInMesh;
 	
 	auto end = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-	printf("\nReading LAZ files: %.4lf s\n", (double)duration.count() / 1000.0);
+	//printf("\nReading LAZ files: %.4lf s\n", (double)duration.count() / 1000.0);
 
 	return true;
 }
@@ -340,7 +340,7 @@ void DataHandler::normalizePoints()
 	auto end = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-	printf("\nNormalization: %.4lf s\n", (double)duration.count() / 1000.0);
+	//printf("\nNormalization: %.4lf s\n", (double)duration.count() / 1000.0);
 
 }
 
@@ -433,14 +433,14 @@ void DataHandler::redistributePoints()
 	auto end = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-	printf("\nPoints redistribution: %.4lf s\n", (double)duration.count() / 1000.0);
+	//printf("\nPoints redistribution: %.4lf s\n", (double)duration.count() / 1000.0);
 }
 
 void DataHandler::computeMetrics()
 {
 	int nPixels = m_areaInfo.width * m_areaInfo.height;
 
-	std::cout << "Compute metrics started...\n";
+	//std::cout << "Compute metrics started...\n";
 	auto start = std::chrono::high_resolution_clock::now();
 
 	m_metrics.resize(nMetrics);
@@ -554,7 +554,7 @@ void DataHandler::computeMetrics()
 	auto end = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-	printf("done: %.4lf s\n", (double)duration.count() / 1000.0);
+	//printf("done: %.4lf s\n", (double)duration.count() / 1000.0);
 }
 
 void DataHandler::exportMetrics(std::string fileName)
@@ -572,19 +572,19 @@ void DataHandler::exportMetrics(std::string fileName)
 	// fileName += std::string("_h=") + std::to_string(m_areaInfo.desiredPixelSize) + std::string("m");
 	fileName = "../../../raster_metrics/"+ fileName + ".tif";
 
-	std::cout << "Exporting metrics..." << std::endl;
+	//std::cout << "Exporting metrics..." << std::endl;
 	// load drivers
 	GDALAllRegister();
 	GDALDriver* poDriver;
 	poDriver = GetGDALDriverManager()->GetDriverByName("GTiff");
 
-	std::cout << "Driver registered" << std::endl;
+	//std::cout << "Driver registered" << std::endl;
 
 	GDALDataset* poDstDS = nullptr;
 	char** papszOptions = NULL;
 	poDstDS = poDriver->Create(fileName.c_str(), m_areaInfo.width, m_areaInfo.height, m_metrics.size(), GDT_Float64, papszOptions);
 
-	std::cout << "Dataset created" << std::endl;
+	//std::cout << "Dataset created" << std::endl;
 
 	// geotransform -> x,y lavy horny vrchol, dlzky v metroch pre pixely, rotacie (tie su 0)
 	double adfGeoTransform[6] = { m_areaInfo.xLeft,
@@ -595,7 +595,7 @@ void DataHandler::exportMetrics(std::string fileName)
 		                         static_cast<double>(- m_areaInfo.desiredPixelSize)};
 	poDstDS->SetGeoTransform(adfGeoTransform);
 
-	std::cout << "Set geotransform" << std::endl;
+	//std::cout << "Set geotransform" << std::endl;
 
 	// Spatial reference system for tif
 	OGRSpatialReference oSRS;
@@ -605,7 +605,7 @@ void DataHandler::exportMetrics(std::string fileName)
 	poDstDS->SetProjection(pszSRS_WKT);
 	CPLFree(pszSRS_WKT);
 
-	std::cout << "Set spatial reference" << std::endl;
+	//std::cout << "Set spatial reference" << std::endl;
 
 	// Export bands
 	GDALRasterBand* poBand;
@@ -620,12 +620,12 @@ void DataHandler::exportMetrics(std::string fileName)
 			m_metrics[i], m_areaInfo.width, m_areaInfo.height, GDT_Float64, 0, 0);
 	}
 
-	std::cout << "Data written to file" << std::endl;
+	//std::cout << "Data written to file" << std::endl;
 
 	// Close file
 	GDALClose((GDALDatasetH)poDstDS);
 
-	std::cout << "Export done" << std::endl;
+	//std::cout << "Export done" << std::endl;
 }
 
 bool DataHandler::exportLAS(std::string fileName)
@@ -736,7 +736,7 @@ bool DataHandler::exportLAZ(std::string fileName)
 
 	fileName = std::string("../../").append(fileName);
 
-	std::cout << "Exporting PC to LAZ file: '" << fileName << "'\n";
+	//std::cout << "Exporting PC to LAZ file: '" << fileName << "'\n";
 
 	// TODO: dorobit podla https://github.com/LAStools/LAStools/blob/master/LASzip/example/laszipdllexample.cpp
 
