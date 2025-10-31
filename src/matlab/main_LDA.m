@@ -6,6 +6,8 @@ clc
 [filePath,~,~] = fileparts(matlab.desktop.editor.getActiveFilename);
 cd(filePath);
 
+addpath(genpath("fig2u3d-master\"));
+
 selectedClasses = logical([1,1,1,1,1]); % [91E0,91F0,91G0,9110,Monokultura]
 nk = [22,27,31,31,22]; % number of samples in classes, [22,28,31,31,11] pre rev2.3, [22,27,31,31,22] pre rev3.6
 selectSamples = repelem(selectedClasses, nk);
@@ -21,12 +23,15 @@ dataSENTImono = readmatrix("mono_11x72_2018.csv");
 
 % lidar data
 % dataLIDAR = readmatrix("RM_curves_rev2.3.csv");
+% dataLIDAR = readmatrix("repMetrics\RM_biotops_allVeg_3.6_noShannon_v2.csv");
+% dataLIDARmono = readmatrix("repMetrics\RM_monoculture_allVeg_3.6_noShannon_v2.csv");
+
 dataLIDAR = readmatrix("repMetrics\RM_biotops_allVeg_3.6.csv");
 dataLIDARmono = readmatrix("repMetrics\RM_monoculture_allVeg_3.6.csv");
 
 % lidar metrics names
 namesLIDAR = ["Hmax", "Hmean","Hmedian","Hp25","Hp75", "Hp95"...
-			  "PPR","DAM_z","BR_bellow_1","BR_1_2","BR_2_3","BR_above_3","BR_3_4","BR_4_5","BR_bellow_5","BR_5_20","BR_above_20" ...
+			  "PPR","DAM_z","BR_below_1","BR_1_2","BR_2_3","BR_above_3","BR_3_4","BR_4_5","BR_below_5","BR_5_20","BR_above_20" ...
 			  "Coeff_var_z", "Hkurt", "Hskew", "Hstd", "Hvar", "Shannon"]; %, "Shannon"
 namesLIDAR = repelem(namesLIDAR, 4)';
 
@@ -65,57 +70,7 @@ data = data(selectSamples,:);
 % choose if PCA should be used and what % of explained variance to take
 PCA = true;
 explainedThreshold = 99.9;
-
-%% ANOVA
-pValues = zeros(1, size(data,2));
-for i = 1:size(data,2)
-	[pValues(i), ~] = anova1(data(:, i), class, "off");
-end
-
-% A = anova(class, data(:, nn));
-% [pValue, ~] = anova1(data(:, nn), class, "off");
-x = 1:1:size(data,2);
-
-alpha = 0.05;
-% The small p-value indicates that differences between column means are significant.
-passedANOVA = pValues < alpha; 
-figure
-plot(x(pValues < alpha), pValues(pValues < alpha), '.g', 'MarkerSize', 15)
-hold on
-plot(x(pValues >= alpha), pValues(pValues >= alpha), '.r', 'MarkerSize', 15)
-for i = 1:length(x) 
-	plot([x(i) x(i)], [0 pValues(i)], ':k')
-end
-xline(6*nnz(statistics)+0.5, "--k","LineWidth",1)
-xline(17*nnz(statistics)+0.5,"--k","LineWidth",1)
-xticks(1:1:size(data,2))
-xticklabels(selectedNamesLIDAR)
-set(gca,'TickLabelInterpreter','none')
-xlim([min(x) - 2, max(x) + 2])
-
-%% SW-test
-pValuesSW = zeros(1, size(data,2));
-for i = 1:size(data,2)
-	[~, pValuesSW(i), ~] = swtest(data(:, i));
-end
-
-x = 1:1:size(data,2);
-
-alpha = 0.05;
-passedSW = pValuesSW > alpha; %
-figure
-plot(x(pValuesSW < alpha), pValuesSW(pValuesSW < alpha), '.r', 'MarkerSize', 15)
-hold on
-plot(x(pValuesSW >= alpha), pValuesSW(pValuesSW >= alpha), '.g', 'MarkerSize', 15)
-for i = 1:length(x) 
-	plot([x(i) x(i)], [0 pValuesSW(i)], ':k')
-end
-xline(6*nnz(statistics)+0.5, "--k","LineWidth",1)
-xline(17*nnz(statistics)+0.5,"--k","LineWidth",1)
-xticks(1:1:size(data,2))
-xticklabels(selectedNamesLIDAR)
-set(gca,'TickLabelInterpreter','none')
-xlim([min(x) - 2, max(x) + 2])
+KS = false;
 
 %% KS-test
 pValuesKS = zeros(1, size(data,2));
@@ -140,6 +95,7 @@ xticks(1:1:size(data,2))
 xticklabels(selectedNamesLIDAR)
 set(gca,'TickLabelInterpreter','none')
 xlim([min(x) - 2, max(x) + 2])
+
 %% Remove the variables with low variance
 selectedVariables = true(1,size(data,2));
 CVThreshold = 1; % coefficient of variation threshold
@@ -152,7 +108,11 @@ CV = (stds ./ means) * 100; % Coefficient of variation for each column
 
 % selectedVariables = selectedVariables & (stds > StdThreshold);
 % selectedVariables = selectedVariables & (CV >= CVThreshold); % columns with variance above the threshold
-selectedVariables = selectedVariables & passedSW;
+if (KS)
+	selectedVariables = selectedVariables & passedKS;
+else
+	selectedVariables = selectedVariables;
+end
 
 selectedVariables_id = find(selectedVariables);
 removedVariables_id = find(~selectedVariables);
@@ -179,46 +139,46 @@ selectedNamesLIDAR = selectedNamesLIDAR(selectedVariables);
 % data = data(:,selectedVariables);
 
 %% Plot data correlation
-% figure
-% imagesc(data);
-% % imagesc((data-mean(data))./std(data)); % standardized
-% colorbar;
-% title('2D Plot of all data');
-
-sigma = cov((data-mean(data))./std(data)); % aby to bolo lepsie vidno na grafe
-% sigma = corr(data);
-% sigma = cov(data);
-% invSigma = inv(sigma);
-figure
-imagesc(sigma);
-yline(6*nnz(statistics)+0.5, "-k","LineWidth",3)
-yline(17*nnz(statistics)+0.5,"-k","LineWidth",3)
-xline(6*nnz(statistics)+0.5, "-k","LineWidth",3)
-xline(17*nnz(statistics)+0.5,"-k","LineWidth",3)
-colorbar;
-title('2D Plot of covariance matrx');
-xticks(1:1:size(data,2))
-xticklabels(selectedNamesLIDAR)
-yticks(1:1:size(data,2))
-yticklabels(selectedNamesLIDAR)
-set(gca,'TickLabelInterpreter','none')
-colormap("turbo")
-
-% Plot within class covariance matrices
-% for k = 1:NumOfClasses
-%     classData = data(class == k, :);
-%     figure
-%     imagesc(classData);
-%     colorbar;
-%     title(['2D Plot of classData ',num2str(k)]);
+% % figure
+% % imagesc(data);
+% % % imagesc((data-mean(data))./std(data)); % standardized
+% % colorbar;
+% % title('2D Plot of all data');
 % 
-%     sigma = cov(classData);
-%     invSigma = inv(sigma);
-%     figure
-%     imagesc(sigma);
-%     colorbar;
-%     title(['2D Plot of covariance matrx ',num2str(k)]);
-% end
+% sigma = cov((data-mean(data))./std(data)); % aby to bolo lepsie vidno na grafe
+% % sigma = corr(data);
+% % sigma = cov(data);
+% % invSigma = inv(sigma);
+% figure
+% imagesc(sigma);
+% yline(6*nnz(statistics)+0.5, "-k","LineWidth",3)
+% yline(17*nnz(statistics)+0.5,"-k","LineWidth",3)
+% xline(6*nnz(statistics)+0.5, "-k","LineWidth",3)
+% xline(17*nnz(statistics)+0.5,"-k","LineWidth",3)
+% colorbar;
+% title('2D Plot of covariance matrx');
+% xticks(1:1:size(data,2))
+% xticklabels(selectedNamesLIDAR)
+% yticks(1:1:size(data,2))
+% yticklabels(selectedNamesLIDAR)
+% set(gca,'TickLabelInterpreter','none')
+% colormap("turbo")
+% 
+% % Plot within class covariance matrices
+% % for k = 1:NumOfClasses
+% %     classData = data(class == k, :);
+% %     figure
+% %     imagesc(classData);
+% %     colorbar;
+% %     title(['2D Plot of classData ',num2str(k)]);
+% % 
+% %     sigma = cov(classData);
+% %     invSigma = inv(sigma);
+% %     figure
+% %     imagesc(sigma);
+% %     colorbar;
+% %     title(['2D Plot of covariance matrx ',num2str(k)]);
+% % end
 
 %% PCA
 if (PCA)
@@ -229,6 +189,7 @@ if (PCA)
 	[coef, dataAfterPCA, variances, ~, explained, ~] = pca(dataScaled, "Algorithm","eig");
 
 	index = find(cumsum(explained) > explainedThreshold, 1);
+% 	index = 2;
 
 	fprintf("Found index %d\nexplained: %.3f\n", index, sum(explained(1:index)));
 
@@ -246,7 +207,7 @@ ylabel('Proportion of Variance Explained','Rotation',90)
 xlim([0.5, 10])
 
 %% Biplot pre PCA
-statisticsPCA = [1,1,1,1]; % [mean, std, min, max]
+statisticsPCA = [1,0,0,0]; % [mean, std, min, max]
 
 plotCoef = statisticsPCA'*ismember(1:NumOfLIDAR,metricsLIDAR);
 plotCoef = logical(plotCoef(:));
@@ -254,13 +215,13 @@ plotCoef = plotCoef(selectedVariables);
 
 Format = { {'Marker', 'o', 'MarkerSize', 8, 'MarkerFaceColor', 'r', 'MarkerEdgeColor', 'r'};...
 		   {'Marker', 'o', 'MarkerSize', 8, 'MarkerFaceColor', 'g', 'MarkerEdgeColor', 'g'};...
-		   {'Marker', 'o', 'MarkerSize', 8, 'MarkerFaceColor', 'b', 'MarkerEdgeColor', 'b'};...
-		   {'Marker', 'o', 'MarkerSize', 8, 'MarkerFaceColor', 'm', 'MarkerEdgeColor', 'm'};...
+% 		   {'Marker', 'o', 'MarkerSize', 8, 'MarkerFaceColor', 'b', 'MarkerEdgeColor', 'b'};...
+% 		   {'Marker', 'o', 'MarkerSize', 8, 'MarkerFaceColor', 'm', 'MarkerEdgeColor', 'm'}};...
 		   {'Marker', 'o', 'MarkerSize', 8, 'MarkerFaceColor', 'k', 'MarkerEdgeColor', 'k'}};
 
 
 figure
-% biplot(coef(:,1:2),"VarLabels",selectedNamesLIDAR)
+% biplot(coef(:,1:3),"VarLabels",["PPR", "Coeff_var_z", "Shannon_min"])
 biplotG(coef(plotCoef, :), dataAfterPCA, "VarLabels",selectedNamesLIDAR(plotCoef), 'Group', class, 'Format', Format)
 
 % preskalovanie scores podla biplotu
@@ -305,10 +266,10 @@ set(gca,'TickLabelInterpreter','none')
 xline(6*nnz(statistics)+0.5, "-g","LineWidth",3)
 xline(17*nnz(statistics)+0.5,"-g","LineWidth",3)
 
-%% Cross-validation
+%% k-Fold Cross-validation
 rep = 200;
 accuracies = zeros(rep, 1);
-k = 5;
+k = 5; % 5, ak je iba 91E0+mono tak 4
 
 for i = 1:rep
 	cv = cvpartition(n, "KFold", k);
@@ -324,7 +285,32 @@ end
 meanAccuracy = mean(accuracies);
 stdAccuracy = std(accuracies);
 
-fprintf("CV result accuracy: %.2f %% +- %.2f %%\n", meanAccuracy, stdAccuracy);
+fprintf("k-Fold CV result accuracy: %.2f %% +- %.2f %%\n", meanAccuracy, stdAccuracy);
+
+%% Leave-One-Out Cross-validation
+if (PCA)
+	dataTemp = dataAfterPCA;
+else
+	dataTemp = data;
+end
+
+newObs_indices = eye(size(dataTemp,1));
+correct = 0;
+
+for i = 1:size(data,1)
+	trainIdn = ~newObs_indices(:,i);
+
+	LDAcls = fitcdiscr(dataTemp(trainIdn,:), class(trainIdn), 'DiscrimType', 'linear');
+
+	predClass = predict(LDAcls, dataTemp(~trainIdn,:));
+
+	if (predClass == class(~trainIdn))
+		correct = correct + 1;
+	end
+end
+
+accuracy = correct / size(dataTemp, 1) * 100;
+fprintf("LOO CV result accuracy: %.2f %%\n", accuracy);
 
 %% LDA - fit model
 if (PCA)
@@ -357,71 +343,71 @@ fprintf('Total Success Rate: %.2f %%\n', successRate);
 confusionchart(class,predClass)
 
 %% LDA - Vypocet a vykreslenie projekcii
-classNames = ["91E0", "91F0","91G0","9110","Mono"];
-yLineType = ["r:","g:","b:","m:","k:"];
-
-figure("WindowState","maximized","Name","PCA: Lidar+Sentinel");
-tiledlayout(5, 4);
-
-c91E0 = cell(5, 4);
-c91F0 = cell(5, 4);
-c91G0 = cell(5, 4);
-c9110 = cell(5, 4);
-cmono = cell(5, 4);
-
-for i = 1:5
-	for j = 1:5
-		if (i == j)
-			continue
-		end
-
-		a = LDAcls.Coeffs(i,j).Linear;
-		c0 = LDAcls.Coeffs(i,j).Const;
-
-		normal = a / norm(a);
-		DB = -c0 / norm(a);
-
-		% vypocet projekcii
-		if (PCA)
-			dotProducts = dataAfterPCA * normal;
-		else
-			dotProducts = data * normal;
-		end
-
-		coords = [dotProducts, class];
-
-		c91E0{i,j} = coords(coords(:,2) == 1, :);
-		c91F0{i,j} = coords(coords(:,2) == 2, :);
-		c91G0{i,j} = coords(coords(:,2) == 3, :);
-		c9110{i,j} = coords(coords(:,2) == 4, :);
-		cmono{i,j} = coords(coords(:,2) == 5, :);
-
-		nexttile
-		title(classNames(i) + " ~ " + classNames(j), "coeff(" + num2str(i) + "," + num2str(j) + ")")
-		hold on
-		% vykreslenie projekcii
-		plot(c91E0{i,j}(:,1), c91E0{i,j}(:,2), 'r.', "MarkerSize", 10)
-		plot(c91F0{i,j}(:,1), c91F0{i,j}(:,2), 'g.', "MarkerSize", 10)
-		plot(c91G0{i,j}(:,1), c91G0{i,j}(:,2), 'b.', "MarkerSize", 10)
-		plot(c9110{i,j}(:,1), c9110{i,j}(:,2), 'm.', "MarkerSize", 10)
-		plot(cmono{i,j}(:,1), cmono{i,j}(:,2), 'k.', "MarkerSize", 10)
-		% horizontalne ciary na zvyraznenie tried
-		yline(i, yLineType(i))
-		yline(j, yLineType(j))
-		% decision boundary
-		xl = xline(DB,'--','DB');
-		xl.LabelVerticalAlignment = "middle";
-		xl.LabelHorizontalAlignment = "center";
-		hold off
-		% premenovanie tickov na y osi kvoli prehladnosti
-		yticks([1 2 3 4 5])
-		yticklabels({'91E0', '91F0','91G0','9110','Mono'})
-		ylim([0.6, 5.4])
-
-	end
-end
-
-% legend("91E0", "91F0","91G0","9110","Mono")
+% classNames = ["91E0", "91F0","91G0","9110","Mono"];
+% yLineType = ["r:","g:","b:","m:","k:"];
+% 
+% figure("WindowState","maximized","Name","PCA: Lidar+Sentinel");
+% tiledlayout(5, 4);
+% 
+% c91E0 = cell(5, 4);
+% c91F0 = cell(5, 4);
+% c91G0 = cell(5, 4);
+% c9110 = cell(5, 4);
+% cmono = cell(5, 4);
+% 
+% for i = 1:5
+% 	for j = 1:5
+% 		if (i == j)
+% 			continue
+% 		end
+% 
+% 		a = LDAcls.Coeffs(i,j).Linear;
+% 		c0 = LDAcls.Coeffs(i,j).Const;
+% 
+% 		normal = a / norm(a);
+% 		DB = -c0 / norm(a);
+% 
+% 		% vypocet projekcii
+% 		if (PCA)
+% 			dotProducts = dataAfterPCA * normal;
+% 		else
+% 			dotProducts = data * normal;
+% 		end
+% 
+% 		coords = [dotProducts, class];
+% 
+% 		c91E0{i,j} = coords(coords(:,2) == 1, :);
+% 		c91F0{i,j} = coords(coords(:,2) == 2, :);
+% 		c91G0{i,j} = coords(coords(:,2) == 3, :);
+% 		c9110{i,j} = coords(coords(:,2) == 4, :);
+% 		cmono{i,j} = coords(coords(:,2) == 5, :);
+% 
+% 		nexttile
+% 		title(classNames(i) + " ~ " + classNames(j), "coeff(" + num2str(i) + "," + num2str(j) + ")")
+% 		hold on
+% 		% vykreslenie projekcii
+% 		plot(c91E0{i,j}(:,1), c91E0{i,j}(:,2), 'r.', "MarkerSize", 10)
+% 		plot(c91F0{i,j}(:,1), c91F0{i,j}(:,2), 'g.', "MarkerSize", 10)
+% 		plot(c91G0{i,j}(:,1), c91G0{i,j}(:,2), 'b.', "MarkerSize", 10)
+% 		plot(c9110{i,j}(:,1), c9110{i,j}(:,2), 'm.', "MarkerSize", 10)
+% 		plot(cmono{i,j}(:,1), cmono{i,j}(:,2), 'k.', "MarkerSize", 10)
+% 		% horizontalne ciary na zvyraznenie tried
+% 		yline(i, yLineType(i))
+% 		yline(j, yLineType(j))
+% 		% decision boundary
+% 		xl = xline(DB,'--','DB');
+% 		xl.LabelVerticalAlignment = "middle";
+% 		xl.LabelHorizontalAlignment = "center";
+% 		hold off
+% 		% premenovanie tickov na y osi kvoli prehladnosti
+% 		yticks([1 2 3 4 5])
+% 		yticklabels({'91E0', '91F0','91G0','9110','Mono'})
+% 		ylim([0.6, 5.4])
+% 
+% 	end
+% end
+% 
+% % legend("91E0", "91F0","91G0","9110","Mono")
 
 %% Vykreslenie najlepsich projekcii
 % ked sa spravi PCA:
@@ -466,8 +452,7 @@ if (PCA)
 else
 	X = data;
 end
-% X = data(:, passedANOVA);
-% nnz(passedANOVA)
+
 % Within-Class variance W
 Xi = [];
 W = zeros(size(X,2));
@@ -484,14 +469,11 @@ W = W / (n - 1);
 % Sample Variance-Covariance matrix V = B + W
 V = cov(X); % aj tu centrovane
 
-% Xc = X - mean(X);
-% V2 = (Xc' * Xc) / (n - 1);
-
 % Between-Class variance B = V - W
 B = V - W;
 
 % F-ratio -> B.u = rho*W.u - generalized eigenvalue problem
-[u, lambda] = eig(B,W);
+[u, lambda] = eig(B, W);
 u = u ./ vecnorm(u);
 norms = vecnorm(u);
 
@@ -506,29 +488,40 @@ X = Xnew(:,1);
 Y = Xnew(:,2);
 Z = Xnew(:,3);
 
+% preskalovanie do [0,1] intervalu
+X = (X - min(X)) / (max(X) - min(X));
+Y = (Y - min(Y)) / (max(Y) - min(Y));
+Z = (Z - min(Z)) / (max(Z) - min(Z));
+
 figure
 hold on
 scatter(X(class == 1),  Y(class == 1), 20, "red", "filled");
 scatter(X(class == 2), Y(class == 2), 20, "green", "filled");
+% scatter(X(class == 3), Y(class == 3), 50, "black", "*");
 scatter(X(class == 3), Y(class == 3), 20, "blue", "filled");
 scatter(X(class == 4), Y(class == 4), 20, "magenta", "filled");
 scatter(X(class == 5), Y(class == 5), 50, "black", "*");
 hold off
+axis equal
 % axis([-0.1 1.2 -0.1 1.2])
-legend('91E0', '91F0', '91G0', '9110', 'Monokultura', 'Location','southeast')
+legend('91E0', '91F0', '91G0', '9110', 'Monoculture', 'Location','southeast')
+% legend('91E0', '91F0','Monoculture', 'Location','southeast')
 
 figure
 title 3D
 hold on
 scatter3(X(class == 1), Y(class == 1), Z(class == 1), 20, "red", "filled");
 scatter3(X(class == 2), Y(class == 2), Z(class == 2), 20, "green", "filled");
+% scatter3(X(class == 3), Y(class == 3), Z(class == 3), 50, "black", "*");
 scatter3(X(class == 3), Y(class == 3), Z(class == 3), 20, "blue", "filled");
 scatter3(X(class == 4), Y(class == 4), Z(class == 4),  20, "magenta", "filled");
 scatter3(X(class == 5), Y(class == 5), Z(class == 5), 50, "black", "*");
 hold off
+axis equal
 % axis([-0.1 1.2 -0.1 1.2])
 view(3)
-legend('91E0', '91F0', '91G0', '9110', 'Monokultura', 'Location','southeast')
+legend('91E0', '91F0', '91G0', '9110', 'Monoculture', 'Location','southeast')
+% legend('91E0', 'Monoculture', '91F0', 'Location','southeast')
 
 %% Prispevky jednotlivych prediktorov #2
 % ževraj na znamienku prispevku nezáleží, stačí sa pozerať len na jeho veľkosť
@@ -572,7 +565,7 @@ Format = { {'Marker', 'o', 'MarkerSize', 8, 'MarkerFaceColor', 'r', 'MarkerEdgeC
 		   {'Marker', 'o', 'MarkerSize', 8, 'MarkerFaceColor', 'k', 'MarkerEdgeColor', 'k'}};
 
 figure
-biplotG(prispevky(selectedLIDARpr,:), Xnew,...
+biplotG(prispevky(selectedLIDARpr,[2 3]), Xnew(:,[2 3]),...
 	'Groups', class,...
 	'VarLabels', selectedNamesLIDAR(selectedLIDARpr),...
 	'Format', Format)
@@ -687,6 +680,77 @@ xticks(1:1:size(data,2))
 xticklabels(selectedNamesLIDAR)
 set(gca,'TickLabelInterpreter','none')
 colormap("turbo")
+
+%%
+allAccuracies = zeros(200, 4, 3);
+allAccuracies(:,:,1) = temp_23;%temp_LDA;
+allAccuracies(:,:,2) = temp_36_v1;%temp_LDA_KS;
+allAccuracies(:,:,3) = temp_36_v2;
+
+temp_mean = mean(allAccuracies(:,:,1:3));
+temp_max = max(allAccuracies(:,:,1:3));
+%%
+% bez NatNets
+types = ["Raw data", "KS test", "PCA", "PCA + KS test"];
+dataset = ["rev 2.3", "rev 3.6 v1", "rev 3.6 v2"];
+
+% s NatNets
+% Xaxis = ["Only habitats", "Habitats + monocultures", "91E0 + monocultures"];
+% type = ["LDA + PCA", "LDA + PCA + KS test", "NatNets"];
+
+% for i = 1:2
+% 	figure("Name", dataset(i))
+% 	boxplot(allAccuracies(:,:,i),'Labels',types)
+% 	ylim([0, 100])
+% end
+
+%%
+a = zeros(4,3);
+a(1,:) = [temp_max(:,1,1), temp_max(:,1,2), temp_max(:,1,3)];
+a(2,:) = [temp_max(:,2,1), temp_max(:,2,2), temp_max(:,2,3)];
+a(3,:) = [temp_max(:,3,1), temp_max(:,3,2), temp_max(:,3,3)];
+a(4,:) = [temp_max(:,4,1), temp_max(:,4,2), temp_max(:,4,3)];
+
+% a = zeros(3,3);
+% a(1,:) = [temp_max(:,1,1), temp_max(:,1,2), temp_NatNets(1)];
+% a(2,:) = [temp_max(:,2,1), temp_max(:,2,2), temp_NatNets(2)];
+% a(3,:) = [temp_max(:,3,1), temp_max(:,3,2), temp_NatNets(3)];
+
+% a = zeros(3,3);
+% a(1,:) = [temp_LDA(1), temp_LDA_KS(1), temp_NatNets(1)];
+% a(2,:) = [temp_LDA(2), temp_LDA_KS(2), temp_NatNets(2)];
+% a(3,:) = [temp_LDA(3), temp_LDA_KS(3), temp_NatNets(3)];
+
+X = categorical(types);
+X = reordercats(X, types);
+
+% X = categorical(Xaxis);
+% X = reordercats(X, Xaxis);
+
+figure("Position",[300 300 800 400])
+bar(X, a)
+title('Maximum accuracy results','k-Fold CV') % 'Leave-One-Out CV'
+ylim([0, 100])
+ylabel("Accuracy [%]")
+grid on
+legend(dataset,"Location","best") % type
+
+% a = zeros(4,3);
+% a(1,:) = [temp_max(:,1,1), temp_max(:,1,2), temp_max(:,1,3)];
+% a(2,:) = [temp_max(:,2,1), temp_max(:,2,2), temp_max(:,2,3)];
+% a(3,:) = [temp_max(:,3,1), temp_max(:,3,2), temp_max(:,3,3)];
+% a(4,:) = [temp_max(:,4,1), temp_max(:,4,2), temp_max(:,4,3)];
+% 
+% X = categorical(types);
+% X = reordercats(X, types);
+% 
+% figure("Position",[300 300 800 400])
+% bar(X, a)
+% title('Maximum accuracy')
+% ylim([0, 100])
+% ylabel("Accuracy [%]")
+% grid on
+% legend(dataset,"Location","northwest")
 
 %% Pomocne funkcie
 function out = proj(x, ind1, ind2, model)

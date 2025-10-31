@@ -162,7 +162,7 @@ classdef dataPreprocessorCurve
 		function plotMesh(this, options)
 			arguments
 				this dataPreprocessorCurve
-				options
+				options = {}
 			end
 
 			hold on

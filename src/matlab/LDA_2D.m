@@ -34,6 +34,10 @@ col = [[0 0.4470 0.7410];
        [0.8500 0.3250 0.0980];
        [0.9290 0.6940 0.1250]];
 
+col = [[1 0 0];
+       [0 0.9 0];
+       [0 0 1]];
+
 %% LDA
 % Train Linear Discriminant Analysis (LDA) classifier
 LDAcls = fitcdiscr(allData, labels, 'DiscrimType', 'linear');
@@ -53,7 +57,7 @@ scatter(data3(:, 1), data3(:, 2), 30, col(3,:),'filled');
 title('Synthetic Data with 3 Classes');
 xlabel('Feature 1');
 ylabel('Feature 2');
-legend();
+% legend();
 hold off;
 
 % Construct meshgrid
@@ -89,11 +93,13 @@ for k = 1:3
         Z_DB = reshape(Z_DB, size(X));
         
         % Plot estimated decision boundary
-        contour(X, Y, Z_DB, [0 0],'--', 'DisplayName', ['Estimated Decision Boundary ' num2str(k),'-', num2str(i)], 'LineColor', 'k');
+        contour(X, Y, Z_DB, [0 0],'--', ...
+			'DisplayName', ['Estimated Decision Boundary ' num2str(k),'-', num2str(i)], ...
+			'LineColor', 'k','LineWidth', 1);
     end
 
     % Plot means
-    scatter(mu(k, 1), mu(k, 2), 100, 'k', 'x', 'LineWidth', 2, 'DisplayName', ['Mean Class ' num2str(k)]);
+%     scatter(mu(k, 1), mu(k, 2), 100, 'k', 'x', 'LineWidth', 2, 'DisplayName', ['Mean Class ' num2str(k)]);
     hold off
 
     figure(2);

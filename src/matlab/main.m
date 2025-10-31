@@ -7,8 +7,8 @@ clc;
 
 % download: https://drive.google.com/drive/folders/1EWlkqu3qofB5kB5QLcPkrFyJxFm2zBec?usp=sharing
 DATA_DIRECTORY = fullfile(MAIN_DIRECTORY, 'data');
-DTM_DIRECTORY  = fullfile(DATA_DIRECTORY, 'ExportDMR_porovnanie');
-PC_DIRECTORY   = fullfile(DATA_DIRECTORY, 'ExportMB_porovnanie');
+DTM_DIRECTORY  = fullfile(DATA_DIRECTORY, 'ExportDMR');
+PC_DIRECTORY   = fullfile(DATA_DIRECTORY, 'ExportMB');
 CURVES_DIRECTORY = fullfile(DATA_DIRECTORY, 'curves');
 
 cd(MAIN_DIRECTORY);
@@ -25,13 +25,13 @@ COLOR_VEG_HIGH   = colorMap(5,:);
 %% DATA READING - DMR
 cd(DTM_DIRECTORY);
 
-[DTM, rasterReference] = readgeoraster('dmr.tif', 'OutputType', 'double');
-infoDMR = georasterinfo('dmr.tif');
+[DTM, rasterReference] = readgeoraster('DTM_2024_02_25_22-38-55_91F0_VysokaPriMorave.kml_data.tif', 'OutputType', 'double');
+infoDMR = georasterinfo('DTM_2024_02_25_22-38-55_91F0_VysokaPriMorave.kml_data.tif');
 
 DTM = standardizeMissing(DTM, infoDMR.MissingDataIndicator);
 DTM = flipud(DTM);
 rasterReference.ColumnsStartFrom = 'south';
-
+cd(MAIN_DIRECTORY)
 %% PLOT - DMR
 figure('Name', 'Digital Terrain Model data')
 title 'DTM data'
@@ -41,9 +41,22 @@ view(2);
 daspect([1 1 1]) % cim je posledne cislo blizsie ku 0, tym viac sa skaluje "z" suradnica
 axis normal
 
+%%
+[X, Y] = rasterReference.worldGrid();
+
+figure('Name', 'Digital Terrain Model data')
+title 'DTM data'
+% imagesc(X(1,:), Y(:,1), DTM)
+surf(X, Y, imgaussfilt(DTM, 2), 'EdgeAlpha',0)
+set(gca,'YDir','normal') % spravne hodnoty na y osi
+colormap hot
+colorbar
+% axis equal
+daspect([1 1 0.05])
+
 %% DATA READING - PC
-cd(PC_DIRECTORY);
-lasFiles = dir('*.las'); % find all *.las files
+% cd(PC_DIRECTORY);
+lasFiles = dir('*.laz'); % find all *.las files
 lasCount = length(lasFiles); % number of found *.las files
 
 ptCloud = cell(lasCount, 1);
@@ -60,14 +73,14 @@ for i = 1:lasCount
 end
 
 % average number of points
-fprintf("Average point count per pixel: %.2f\n", nPoints / nnz(~isnan(DTM(:))));
+% fprintf("Average point count per pixel: %.2f\n", nPoints / nnz(~isnan(DTM(:))));
 
 %% PLOT - PC
 % 2 -> Ground
 % 3 -> Low Vegetation
 % 4 -> Medium Vegetation
 % 5 -> High Vegetation
-selectedClasses = [2 5];
+selectedClasses = [ 5 ];
 	
 figure('Name', 'Point Cloud data')
 title 'Point Cloud data'
@@ -115,7 +128,7 @@ featureExtractor = featureExtractor.meshPlane();
 % bud vybrat DTM alebo podla vysledkov LiDAR metrik
 
 % H = flipud(DTM);
-H = flipud(featureExtractor.metricsRasters.Hmax);
+H = flipud(featureExtractor.metricsRasters.Hskew); %featureExtractor.metricsRasters.Hp25
 figure
 Alpha = ones(size(H));
 Alpha(isnan(H)) = 0;
@@ -150,7 +163,7 @@ for i = 1:lasCount
 	% original
 	xy = ptCloud{i}.Location(:,1:2);
 	t = (xy - A) / (B - A);
-	selected = d(xy) < width & t <= 1 & t >= 0;
+	selected = d(xy) < (width/2) & t <= 1 & t >= 0;
 	
 	classMember = ismember(ptAttributes{i}.Classification, selectedClasses);
 		if any(classMember & selected)
@@ -170,7 +183,7 @@ for i = 1:lasCount
 	% normalized
 	xy = PC_n{i}.Location(:,1:2);
 	t = (xy - A) / (B - A);
-	selected = d(xy) < width & t <= 1 & t >= 0;
+	selected = d(xy) < (width/2) & t <= 1 & t >= 0;
 	
 	classMember = ismember(att_n{i}.Classification, selectedClasses);
 		if any(classMember & selected)
@@ -180,6 +193,18 @@ for i = 1:lasCount
 		end
 end
 hold off
+
+%%
+Hmax = featureExtractor.metricsRasters.Hmax;
+Hmed = featureExtractor.metricsRasters.Hmedian;
+
+ratio = Hmed ./ Hmax;
+
+figure
+imagesc(flipud(ratio))
+colorbar 
+colormap jet
+
 
 %% Kopia povodnych metrik
 metricRastersCopy = featureExtractor.metricsRasters;

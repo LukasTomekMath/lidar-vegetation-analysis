@@ -8,6 +8,7 @@ clc;
 % download: https://drive.google.com/drive/folders/1EWlkqu3qofB5kB5QLcPkrFyJxFm2zBec?usp=sharing
 DATA_DIRECTORY = fullfile(MAIN_DIRECTORY, 'data');
 CURVES_DIRECTORY = fullfile(DATA_DIRECTORY, 'curves');
+LOT_DIR = fullfile(MAIN_DIRECTORY, "data/lazFiles");
 
 SHAPEFILES_DIRECTORY = fullfile(DATA_DIRECTORY,'_shapeFiles');
 SHP_ALL_LOTS = fullfile(SHAPEFILES_DIRECTORY,...
@@ -89,13 +90,17 @@ foundLazFiles = cell(length(curves), 1);
 LOTS_curves = loadLOTS(SHP_ALL_LOTS); % table of curves for
 fprintf("LOTs curves loaded\n");
 
+cd(MAIN_DIRECTORY);
+h = 10; n = 1;
+
 tic
 for i = 1:length(curves) % iterate through all .KML curves
+	dataPP = dataPreprocessorCurve(curves{i}.poly, h, n);
 	foundLots = []; % cell of strings of found LOTS where the curves{i} lies inside
 	% find indices of LOTs where the i-th .KML curve belongs to
 	for j = 1:length(LOTS_curves) % iterate through all LOT curves
 		% find intersection of i-th .KML curve with j-th LOT
-		intersection = intersect(curves{i}.poly, LOTS_curves{j}.poly);
+		intersection = intersect(dataPP.Omega, LOTS_curves{j}.poly);
 
 		if isempty(intersection.Vertices) % if i-th .KML curve does not intersect with j-th LOT curve -> continue
 			continue;
@@ -122,7 +127,7 @@ for i = 1:length(curves) % iterate through all .KML curves
 		
 		for k = 1:length(FOOTPRINTS_curves) % iterate over all footprints within found j-th LOT
 
-			intersection = intersect(curves{i}.poly, FOOTPRINTS_curves{k}.poly);
+			intersection = intersect(dataPP.Omega, FOOTPRINTS_curves{k}.poly);
 
 			if isempty(intersection.Vertices) % if i-th .KML curve does not intersect with j-th LOT curve -> continue
 				continue;
@@ -162,7 +167,7 @@ axis equal
 hold on
 plot(curves{c}.poly,"LineWidth",5,"EdgeColor","red")
 for i = 1:length(foundLazFiles{c})
-	plot(foundLazFiles{c}{i}.poly,"FaceAlpha",0.05);
+	plot(foundLazFiles{c}{i}.poly,"FaceAlpha",0.1);
 	pause(0.5)
 end
 plot(curves{c}.poly,"LineWidth",5,"EdgeColor","red","FaceAlpha",0)
@@ -171,10 +176,10 @@ hold off
 %% VYPOCET METRIK
 cd(MAIN_DIRECTORY);
 h = 10; n = 1;
-LOT_DIR = fullfile(MAIN_DIRECTORY, "data/lazFiles");
+
 representativeMetrics = zeros(length(curves), 92); % 92 alebo 115, ak je aj median
 dataFE = cell(length(curves), 1);
-logFile = fopen("log_RM_monooculture_allVeg_3.6.txt", "w");
+logFile = fopen("log_RM_monoculture_allVeg_3.6_2.txt", "w");
 
 totalTime = 0;
 for c = 1:length(curves)
@@ -249,13 +254,13 @@ end
 fprintf("Computation done %.3f\n", totalTime);
 fprintf(logFile,"\nComputation done %.3f\n", totalTime);
 
-writematrix(representativeMetrics,"RM_monoculture_allVeg_3.6.csv","Delimiter",";");
+writematrix(representativeMetrics,"RM_monoculture_allVeg_3.6_2.csv","Delimiter",";");
 
 fclose(logFile);
 
 %%
 figure
-dataFE{1}.plotMetricRaster("plotData","BR_above_20","plotMesh",1)
+dataFE{1}.plotMetricRaster("plotData","Shannon","plotMesh",1)
 colormap jet
 colorbar
 axis equal
@@ -446,6 +451,7 @@ dataFE2.plotMesh("MarkerSize",30, "OmegaWidth", 2, "OmegaColor", "blue");
 axis equal
 
 %%
+cd(LOT_DIR)
 missingFiles = cell(1);
 missingFiles{1} = '';
 found = 1;
@@ -458,6 +464,7 @@ end
 
 missingFiles = missingFiles';
 
+cd(MAIN_DIRECTORY)
 %%
 for i = 1:length(missingFiles)
 	fprintf("file %d/%d\n", i, length(missingFiles));
@@ -487,16 +494,14 @@ fprintf("done\n");
 
 %%
 tic
-cd("lazFiles\")
-lasReader = lasFileReader("03_Bratislava_17_205026_5342423_a_c_jtsk03_bpv.laz");
-[ptCloud, ptAttributes] = readPointCloud(lasReader,...
+lasReader = lasFileReader("04_DunajskaStreda_17_237314_5313514_a_c_jtsk03_bpv.laz");
+[ptCloud_i, ptAttributes_i] = readPointCloud(lasReader,...
 									'Attributes', 'Classification');
 
-cd("..")
-save("03_Bratislava_17_205026_5342423_a_c_jtsk03_bpv.mat", "ptCloud","ptAttributes");
+save("04_DunajskaStreda_17_237314_5313514_a_c_jtsk03_bpv.mat", "ptCloud_i","ptAttributes_i");
 
 clear all
-load("03_Bratislava_17_205026_5342423_a_c_jtsk03_bpv.mat")
+load("04_DunajskaStreda_17_237314_5313514_a_c_jtsk03_bpv.mat")
 
 time = toc;
 fprintf("Time needed: %.2f\n", time);

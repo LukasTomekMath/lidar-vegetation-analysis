@@ -8,6 +8,7 @@ end
 hold on
 for i = 1:options.Incr:length(curves)
 	plot(curves{i}.poly,"FaceAlpha", options.FaceAlpha);
+% 	pause(0.5);
 end
 hold off
 

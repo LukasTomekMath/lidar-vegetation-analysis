@@ -58,8 +58,11 @@ classdef dataFeatureExtractor
             nyOld = RR_orig.RasterExtentInWorldY;
 
 			% compute new raster extent based on the desired pixel size
-			this.nx = (nxOld - mod(nxOld, h)) / h;
-			this.ny = (nyOld - mod(nyOld, h)) / h;
+% 			this.nx = (nxOld - mod(nxOld, h)) / h;
+% 			this.ny = (nyOld - mod(nyOld, h)) / h;
+
+			this.nx = floor(nxOld / h);
+			this.ny = floor(nyOld / h);
 
 			this.numOfMeshPixels = this.ny * this.nx;
 			
@@ -91,13 +94,13 @@ classdef dataFeatureExtractor
 			
 			this.plotTitles.PPR         = 'Pulse penetration ratio';
 			this.plotTitles.DAM_z		= 'Number of returns above mean height';
-			this.plotTitles.BR_bellow_1 = 'Proportion of vegetation points bellow 1 m';
+			this.plotTitles.BR_below_1 = 'Proportion of vegetation points below 1 m';
 			this.plotTitles.BR_1_2      = 'Proportion of vegetation points between 1 m - 2 m';
 			this.plotTitles.BR_2_3      = 'Proportion of vegetation points between 2 m - 3 m';
 			this.plotTitles.BR_above_3  = 'Proportion of vegetation points above 3 m';
 			this.plotTitles.BR_3_4      = 'Proportion of vegetation points between 3 m - 4 m';
 			this.plotTitles.BR_4_5      = 'Proportion of vegetation points between 4 m - 5 m';
-			this.plotTitles.BR_bellow_5 = 'Proportion of vegetation points bellow 5 m';
+			this.plotTitles.BR_below_5  = 'Proportion of vegetation points below 5 m';
 			this.plotTitles.BR_5_20     = 'Proportion of vegetation points between 5 m - 20 m';
 			this.plotTitles.BR_above_20 = 'Proportion of vegetation points above 20 m';
 			
@@ -119,21 +122,21 @@ classdef dataFeatureExtractor
 			
 			this.exportTitles.PPR         = '8_PPR_';
 			this.exportTitles.DAM_z		  = '9_Density_above_mean_z_';
-			this.exportTitles.BR_bellow_1 = '10_BR_bellow_1_';
+			this.exportTitles.BR_below_1 = '10_BR_below_1_';
 			this.exportTitles.BR_1_2      = '11_BR_1_2_';
 			this.exportTitles.BR_2_3      = '12_BR_2_3_';
 			this.exportTitles.BR_above_3  = '13_BR_above_3_';
 			this.exportTitles.BR_3_4      = '14_BR_3_4_';
 			this.exportTitles.BR_4_5      = '15_BR_4_5_';
-			this.exportTitles.BR_bellow_5 = '16_BR_bellow_5_';
+			this.exportTitles.BR_below_5  = '16_BR_below_5_';
 			this.exportTitles.BR_5_20     = '17_BR_5_20_';
 			this.exportTitles.BR_above_20 = '18_BR_above_20_';
 			
 			this.exportTitles.Coeff_var_z  = '19_Coeff_var_z_';
-			this.exportTitles.Hkurt       = '21_Hkurt_';
-			this.exportTitles.Hskew       = '23_Hskew_';
-			this.exportTitles.Hstd        = '24_Hstd_';
-			this.exportTitles.Hvar        = '25_Hvar_';
+			this.exportTitles.Hkurt        = '21_Hkurt_';
+			this.exportTitles.Hskew        = '23_Hskew_';
+			this.exportTitles.Hstd         = '24_Hstd_';
+			this.exportTitles.Hvar         = '25_Hvar_';
 
 		end
 
@@ -202,13 +205,13 @@ classdef dataFeatureExtractor
 			% ECOSYSTEM COVER
 			this.metricsRasters.PPR = NaN(this.ny, this.nx);
 			this.metricsRasters.DAM_z = NaN(this.ny, this.nx);
-			this.metricsRasters.BR_bellow_1 = NaN(this.ny, this.nx);
+			this.metricsRasters.BR_below_1 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_1_2 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_2_3 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_above_3 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_3_4 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_4_5 = NaN(this.ny, this.nx);
-			this.metricsRasters.BR_bellow_5 = NaN(this.ny, this.nx);
+			this.metricsRasters.BR_below_5 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_5_20 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_above_20 = NaN(this.ny, this.nx);
 
@@ -288,13 +291,13 @@ classdef dataFeatureExtractor
 
 				PPR         = groundPoints / allPixelPoints;
 				DAM_z       = nnz(Z > meanZ);
-				BR_bellow_1 = nnz(Z < 1) / length(Z);
+				BR_below_1 = nnz(Z < 1) / length(Z);
 				BR_1_2      = nnz (Z > 1 & Z < 2) / length(Z);
 				BR_2_3      = nnz (Z > 2 & Z < 3) / length(Z);
 				BR_above_3  = nnz (Z > 3) / length(Z);
 				BR_3_4      = nnz (Z > 3 & Z < 4) / length(Z);
 				BR_4_5      = nnz (Z > 4 & Z < 5) / length(Z);
-				BR_bellow_5 = nnz (Z < 5) / length(Z);
+				BR_below_5 = nnz (Z < 5) / length(Z);
 				BR_5_20     = nnz (Z > 5 & Z < 20) / length(Z);
 				BR_above_20 = nnz (Z > 20) / length(Z);
 
@@ -319,13 +322,13 @@ classdef dataFeatureExtractor
 				
 				this.metricsRasters.PPR(i)		   = PPR;
 				this.metricsRasters.DAM_z(i)	   = DAM_z;
-				this.metricsRasters.BR_bellow_1(i) = BR_bellow_1;
+				this.metricsRasters.BR_below_1(i) = BR_below_1;
 				this.metricsRasters.BR_1_2(i)      = BR_1_2;
 				this.metricsRasters.BR_2_3(i)      = BR_2_3;
 				this.metricsRasters.BR_above_3(i)  = BR_above_3;
 				this.metricsRasters.BR_3_4(i)      = BR_3_4;
 				this.metricsRasters.BR_4_5(i)      = BR_4_5;
-				this.metricsRasters.BR_bellow_5(i) = BR_bellow_5;
+				this.metricsRasters.BR_below_5(i) = BR_below_5;
 				this.metricsRasters.BR_5_20(i)     = BR_5_20;
 				this.metricsRasters.BR_above_20(i) = BR_above_20;
 
@@ -363,13 +366,13 @@ classdef dataFeatureExtractor
 			% ECOSYSTEM COVER
 			metricsRasters_PPR = NaN(this.ny, this.nx);
 			metricsRasters_DAM_z = NaN(this.ny, this.nx);
-			metricsRasters_BR_bellow_1 = NaN(this.ny, this.nx);
+			metricsRasters_BR_below_1 = NaN(this.ny, this.nx);
 			metricsRasters_BR_1_2 = NaN(this.ny, this.nx);
 			metricsRasters_BR_2_3 = NaN(this.ny, this.nx);
 			metricsRasters_BR_above_3 = NaN(this.ny, this.nx);
 			metricsRasters_BR_3_4 = NaN(this.ny, this.nx);
 			metricsRasters_BR_4_5 = NaN(this.ny, this.nx);
-			metricsRasters_BR_bellow_5 = NaN(this.ny, this.nx);
+			metricsRasters_BR_below_5 = NaN(this.ny, this.nx);
 			metricsRasters_BR_5_20 = NaN(this.ny, this.nx);
 			metricsRasters_BR_above_20 = NaN(this.ny, this.nx);
 
@@ -452,13 +455,13 @@ classdef dataFeatureExtractor
 
 				PPR         = groundPoints / allPixelPoints;
 				DAM_z       = nnz(Z > meanZ);
-				BR_bellow_1 = nnz(Z < 1) / length(Z);
+				BR_below_1 = nnz(Z < 1) / length(Z);
 				BR_1_2      = nnz (Z > 1 & Z < 2) / length(Z);
 				BR_2_3      = nnz (Z > 2 & Z < 3) / length(Z);
 				BR_above_3  = nnz (Z > 3) / length(Z);
 				BR_3_4      = nnz (Z > 3 & Z < 4) / length(Z);
 				BR_4_5      = nnz (Z > 4 & Z < 5) / length(Z);
-				BR_bellow_5 = nnz (Z < 5) / length(Z);
+				BR_below_5 = nnz (Z < 5) / length(Z);
 				BR_5_20     = nnz (Z > 5 & Z < 20) / length(Z);
 				BR_above_20 = nnz (Z > 20) / length(Z);
 
@@ -478,13 +481,13 @@ classdef dataFeatureExtractor
 				
 				metricsRasters_PPR(i)		   = PPR;
 				metricsRasters_DAM_z(i)	   = DAM_z;
-				metricsRasters_BR_bellow_1(i) = BR_bellow_1;
+				metricsRasters_BR_below_1(i) = BR_below_1;
 				metricsRasters_BR_1_2(i)      = BR_1_2;
 				metricsRasters_BR_2_3(i)      = BR_2_3;
 				metricsRasters_BR_above_3(i)  = BR_above_3;
 				metricsRasters_BR_3_4(i)      = BR_3_4;
 				metricsRasters_BR_4_5(i)      = BR_4_5;
-				metricsRasters_BR_bellow_5(i) = BR_bellow_5;
+				metricsRasters_BR_below_5(i) = BR_below_5;
 				metricsRasters_BR_5_20(i)     = BR_5_20;
 				metricsRasters_BR_above_20(i) = BR_above_20;
 
@@ -507,13 +510,13 @@ classdef dataFeatureExtractor
 			% ECOSYSTEM COVER
 			this.metricsRasters.PPR         = metricsRasters_PPR;
 			this.metricsRasters.DAM_z       = metricsRasters_DAM_z;
-			this.metricsRasters.BR_bellow_1 = metricsRasters_BR_bellow_1;
+			this.metricsRasters.BR_below_1 = metricsRasters_BR_below_1;
 			this.metricsRasters.BR_1_2      = metricsRasters_BR_1_2;
 			this.metricsRasters.BR_2_3      = metricsRasters_BR_2_3;
 			this.metricsRasters.BR_above_3  = metricsRasters_BR_above_3;
 			this.metricsRasters.BR_3_4      = metricsRasters_BR_3_4;
 			this.metricsRasters.BR_4_5      = metricsRasters_BR_4_5;
-			this.metricsRasters.BR_bellow_5 = metricsRasters_BR_bellow_5;
+			this.metricsRasters.BR_below_5 = metricsRasters_BR_below_5;
 			this.metricsRasters.BR_5_20     = metricsRasters_BR_5_20;
 			this.metricsRasters.BR_above_20 = metricsRasters_BR_above_20;
 
@@ -538,7 +541,7 @@ classdef dataFeatureExtractor
 				this (1,1) dataFeatureExtractor
 				options.clipData (1,:) string {mustBeMember(options.clipData,{'Hmax', 'Hmean',...
 					'Hmedian','Hp25','Hp75', 'Hp95'...
-					'PPR','DAM_z','BR_bellow_1','BR_1_2','BR_2_3','BR_above_3','BR_3_4','BR_4_5','BR_bellow_5','BR_5_20','BR_above_20' ...
+					'PPR','DAM_z','BR_below_1','BR_1_2','BR_2_3','BR_above_3','BR_3_4','BR_4_5','BR_below_5','BR_5_20','BR_above_20' ...
 					'Coeff_var_z', 'Hkurt', 'Hskew', 'Hstd', 'Hvar'})}
 				options.percentile (1,1) {mustBeNumeric, mustBeInRange(options.percentile, 0, 100)} = 97.5
 			end
@@ -558,7 +561,7 @@ classdef dataFeatureExtractor
 				this (1,1) dataFeatureExtractor
 				options.plotData (1,:) string {mustBeMember(options.plotData,["Hmax", "Hmean",...
 					"Hmedian","Hp25","Hp75", "Hp95"...
-					"PPR","DAM_z","BR_bellow_1","BR_1_2","BR_2_3","BR_above_3","BR_3_4","BR_4_5","BR_bellow_5","BR_5_20","BR_above_20" ...
+					"PPR","DAM_z","BR_below_1","BR_1_2","BR_2_3","BR_above_3","BR_3_4","BR_4_5","BR_below_5","BR_5_20","BR_above_20" ...
 					"Coeff_var_z", "Hkurt", "Hskew", "Hstd", "Hvar"])}
 				options.clipPercentile (1,1) {mustBeNumeric, mustBeInRange(options.clipPercentile, 0, 100)} = 97.5
 			end
@@ -615,7 +618,7 @@ classdef dataFeatureExtractor
 				fileName (1,:) string
 				options.exportLayer (1,:) string {mustBeMember(options.exportLayer,{'Hmax', 'Hmean',...
 					'Hmedian','Hp25','Hp75', 'Hp95'...
-					'PPR','DAM_z','BR_bellow_1','BR_1_2','BR_2_3','BR_above_3','BR_3_4','BR_4_5','BR_bellow_5','BR_5_20','BR_above_20' ...
+					'PPR','DAM_z','BR_below_1','BR_1_2','BR_2_3','BR_above_3','BR_3_4','BR_4_5','BR_below_5','BR_5_20','BR_above_20' ...
 					'Coeff_var_z', 'Hkurt', 'Hskew', 'Hstd', 'Hvar'})}
 			end
 

@@ -129,13 +129,13 @@ classdef dataFeatureExtractorCurve
 			
 			this.plotTitles.PPR         = 'Pulse penetration ratio'; % 7
 			this.plotTitles.DAM_z		= 'Number of returns above mean height'; % 8
-			this.plotTitles.BR_bellow_1 = 'Proportion of vegetation points bellow 1 m'; % 9
+			this.plotTitles.BR_below_1 = 'Proportion of vegetation points below 1 m'; % 9
 			this.plotTitles.BR_1_2      = 'Proportion of vegetation points between 1 m - 2 m'; % 10
 			this.plotTitles.BR_2_3      = 'Proportion of vegetation points between 2 m - 3 m'; % 11
 			this.plotTitles.BR_above_3  = 'Proportion of vegetation points above 3 m'; % 12
 			this.plotTitles.BR_3_4      = 'Proportion of vegetation points between 3 m - 4 m'; % 13
 			this.plotTitles.BR_4_5      = 'Proportion of vegetation points between 4 m - 5 m'; % 14
-			this.plotTitles.BR_bellow_5 = 'Proportion of vegetation points bellow 5 m'; % 15
+			this.plotTitles.BR_below_5 = 'Proportion of vegetation points below 5 m'; % 15
 			this.plotTitles.BR_5_20     = 'Proportion of vegetation points between 5 m - 20 m'; % 16
 			this.plotTitles.BR_above_20 = 'Proportion of vegetation points above 20 m'; % 17
 			
@@ -158,13 +158,13 @@ classdef dataFeatureExtractorCurve
 			
 			this.exportTitles.PPR         = '7_PPR_';
 			this.exportTitles.DAM_z		  = '8_Density_above_mean_z_';
-			this.exportTitles.BR_bellow_1 = '9_BR_bellow_1_';
+			this.exportTitles.BR_below_1  = '9_BR_below_1_';
 			this.exportTitles.BR_1_2      = '10_BR_1_2_';
 			this.exportTitles.BR_2_3      = '11_BR_2_3_';
 			this.exportTitles.BR_above_3  = '12_BR_above_3_';
 			this.exportTitles.BR_3_4      = '13_BR_3_4_';
 			this.exportTitles.BR_4_5      = '14_BR_4_5_';
-			this.exportTitles.BR_bellow_5 = '15_BR_bellow_5_';
+			this.exportTitles.BR_below_5  = '15_BR_below_5_';
 			this.exportTitles.BR_5_20     = '16_BR_5_20_';
 			this.exportTitles.BR_above_20 = '17_BR_above_20_';
 			
@@ -179,11 +179,12 @@ classdef dataFeatureExtractorCurve
 
 		function plotMesh(this, options)
 			arguments
-				this 
-				options.OmegaColor = [0.3, 0.3, 0.3]
+				this dataFeatureExtractorCurve
+				options.OmegaColor = 'blue'
 				options.GammaWidth (1,1) {mustBeNumeric} = 2
 				options.OmegaWidth (1,1) {mustBeNumeric} = 3
 				options.MarkerSize (1,1) {mustBeNumeric} = 15
+				options.PlotCenters (1,1) = true
 			end
 			
 			hold on
@@ -197,20 +198,18 @@ classdef dataFeatureExtractorCurve
 					'Color', "black", 'LineWidth', 1,'LineStyle','-') % x grid lines
 			end
 
-			x_ = this.curve.Vertices(:,1);
-			y_ = this.curve.Vertices(:,2);
-			[XYin, ~] = inpolygon(this.Xc, this.Yc, x_ , y_);
+			if (options.PlotCenters)
+				% pixels inside the curve
+				scatter(this.Xc(this.isPixelInCurve),  this.Yc(this.isPixelInCurve),...
+					options.MarkerSize, "og","filled", "MarkerEdgeColor","black")
 
-			% pixels inside the curve
-			scatter(this.Xc(XYin),  this.Yc(XYin),...
-				options.MarkerSize, "og","filled", "MarkerEdgeColor","black")
+				% pixels outside the curve
+				scatter(this.Xc(~this.isPixelInCurve), this.Yc(~this.isPixelInCurve),...
+					options.MarkerSize, "or","filled", "MarkerEdgeColor","black")
+			end
 			
-			% pixels outside the curve
-			scatter(this.Xc(~XYin), this.Yc(~XYin),...
-				options.MarkerSize, "or","filled", "MarkerEdgeColor","black")
-
 			% plot gamma and Omega
-			plot(this.curve, "EdgeColor", options.OmegaColor, "FaceAlpha", 0, "LineWidth",options.GammaWidth)
+			plot(this.curve, "EdgeColor", options.OmegaColor,"FaceColor", options.OmegaColor,"FaceAlpha", 0, "LineWidth",options.GammaWidth)
 			plot(this.Omega,"FaceAlpha",0,"LineStyle","-","LineWidth", options.OmegaWidth)
 
 
@@ -258,13 +257,13 @@ classdef dataFeatureExtractorCurve
 			% ECOSYSTEM COVER
 			this.metricsRasters.PPR = NaN(this.ny, this.nx);
 			this.metricsRasters.DAM_z = NaN(this.ny, this.nx);
-			this.metricsRasters.BR_bellow_1 = NaN(this.ny, this.nx);
+			this.metricsRasters.BR_below_1 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_1_2 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_2_3 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_above_3 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_3_4 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_4_5 = NaN(this.ny, this.nx);
-			this.metricsRasters.BR_bellow_5 = NaN(this.ny, this.nx);
+			this.metricsRasters.BR_below_5 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_5_20 = NaN(this.ny, this.nx);
 			this.metricsRasters.BR_above_20 = NaN(this.ny, this.nx);
 
@@ -342,7 +341,6 @@ classdef dataFeatureExtractorCurve
 					continue;
 				end
 				
-				% TODO: mozno zbytocna podmienka, asi staci len ta nad nou
 				if isempty(Z)
 					Z = 0;
 				end
@@ -356,24 +354,19 @@ classdef dataFeatureExtractorCurve
 				p95Z     = prctile(Z, 95);
 
 				PPR         = groundPoints / allPixelPoints;
-				DAM_z       = nnz(Z > meanZ);
-				BR_bellow_1 = nnz(Z < 1) / length(Z);
+				DAM_z       = nnz(Z > meanZ) / length(Z);
+				BR_below_1 = nnz(Z < 1) / length(Z);
 				BR_1_2      = nnz(Z > 1 & Z < 2) / length(Z);
 				BR_2_3      = nnz(Z > 2 & Z < 3) / length(Z);
 				BR_above_3  = nnz(Z > 3) / length(Z);
 				BR_3_4      = nnz(Z > 3 & Z < 4) / length(Z);
 				BR_4_5      = nnz(Z > 4 & Z < 5) / length(Z);
-				BR_bellow_5 = nnz(Z < 5) / length(Z);
+				BR_below_5 = nnz(Z < 5) / length(Z);
 				BR_5_20     = nnz(Z > 5 & Z < 20) / length(Z);
 				BR_above_20 = nnz(Z > 20) / length(Z);
 
 				kurtZ    = kurtosis(Z);
 				skewZ    = skewness(Z);
-
-% 				if kurtZ > 7.5 || kurtZ < 1.5
-% 
-% 					fprintf("aaaa");
-% 				end
 				varZ     = var(Z);
 				stdZ     = std(Z);
 				coefVarZ = stdZ / meanZ;
@@ -399,13 +392,13 @@ classdef dataFeatureExtractorCurve
 				
 				this.metricsRasters.PPR(i)		   = PPR;
 				this.metricsRasters.DAM_z(i)	   = DAM_z;
-				this.metricsRasters.BR_bellow_1(i) = BR_bellow_1;
+				this.metricsRasters.BR_below_1(i) = BR_below_1;
 				this.metricsRasters.BR_1_2(i)      = BR_1_2;
 				this.metricsRasters.BR_2_3(i)      = BR_2_3;
 				this.metricsRasters.BR_above_3(i)  = BR_above_3;
 				this.metricsRasters.BR_3_4(i)      = BR_3_4;
 				this.metricsRasters.BR_4_5(i)      = BR_4_5;
-				this.metricsRasters.BR_bellow_5(i) = BR_bellow_5;
+				this.metricsRasters.BR_below_5(i) = BR_below_5;
 				this.metricsRasters.BR_5_20(i)     = BR_5_20;
 				this.metricsRasters.BR_above_20(i) = BR_above_20;
 
@@ -486,7 +479,7 @@ classdef dataFeatureExtractorCurve
 				this 
 				options.clipData (1,:) string {mustBeMember(options.clipData,{'Hmax', 'Hmean',...
 					'Hmedian','Hp25','Hp75', 'Hp95'...
-					'PPR','DAM_z','BR_bellow_1','BR_1_2','BR_2_3','BR_above_3','BR_3_4','BR_4_5','BR_bellow_5','BR_5_20','BR_above_20' ...
+					'PPR','DAM_z','BR_below_1','BR_1_2','BR_2_3','BR_above_3','BR_3_4','BR_4_5','BR_below_5','BR_5_20','BR_above_20' ...
 					'Coeff_var_z', 'Hkurt', 'Hskew', 'Hstd', 'Hvar','Shannon'})}
 				options.percentile (1,1) {mustBeNumeric, mustBeInRange(options.percentile, 0, 100)} = 97.5
 			end
@@ -506,7 +499,7 @@ classdef dataFeatureExtractorCurve
 				this dataFeatureExtractorCurve
 				options.plotData (1,:) string {mustBeMember(options.plotData,["Hmax", "Hmean",...
 					"Hmedian","Hp25","Hp75", "Hp95"...
-					"PPR","DAM_z","BR_bellow_1","BR_1_2","BR_2_3","BR_above_3","BR_3_4","BR_4_5","BR_bellow_5","BR_5_20","BR_above_20" ...
+					"PPR","DAM_z","BR_below_1","BR_1_2","BR_2_3","BR_above_3","BR_3_4","BR_4_5","BR_below_5","BR_5_20","BR_above_20" ...
 					"Coeff_var_z", "Hkurt", "Hskew", "Hstd", "Hvar", "Shannon"])}
 				options.clipPercentile (1,1) {mustBeNumeric, mustBeInRange(options.clipPercentile, 0, 100)} = 97.5
 				options.plotCurve logical = 0
@@ -572,7 +565,7 @@ classdef dataFeatureExtractorCurve
 				fileName (1,:) string
 				options.exportLayer (1,:) string {mustBeMember(options.exportLayer,{'Hmax', 'Hmean',...
 					'Hmedian','Hp25','Hp75', 'Hp95'...
-					'PPR','DAM_z','BR_bellow_1','BR_1_2','BR_2_3','BR_above_3','BR_3_4','BR_4_5','BR_bellow_5','BR_5_20','BR_above_20' ...
+					'PPR','DAM_z','BR_below_1','BR_1_2','BR_2_3','BR_above_3','BR_3_4','BR_4_5','BR_below_5','BR_5_20','BR_above_20' ...
 					'Coeff_var_z', 'Hkurt', 'Hskew', 'Hstd', 'Hvar', 'Shannon'})}
 			end
 
