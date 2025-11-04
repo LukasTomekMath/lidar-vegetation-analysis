@@ -21,6 +21,7 @@
 
 // Data handler include
 #include "PointCloudMetrics.h"
+#include "PolygonManager.h"
 
 namespace fs = std::filesystem;
 
@@ -46,8 +47,12 @@ std::string formatTime(double seconds) {
 	return oss.str();
 }
 
+struct FileInfo { 
+	fs::directory_entry entry; 
+	std::uint64_t size; 
+};
 
-int main(int argc, char** argv)
+int main_all_files(int argc, char** argv)
 {
 	int nprocs = 6;
 	int files_done = 0;
@@ -75,20 +80,33 @@ int main(int argc, char** argv)
 	std::string dataDirectoryPath = inputArg;
 	std::cout << "Scanning for .laz files in '" << dataDirectoryPath << "'..." << std::endl;
 	//vytvaranie vektora so subormi na paralelne spracovanie
-	std::vector<fs::directory_entry> files;
+	std::vector<FileInfo> files;
 	for (const auto& file : fs::directory_iterator(dataDirectoryPath))
 	{
-		files.push_back(file);
+		auto path = file.path();
+		std::string filename = path.filename().string();
+
+		if (path.extension() == ".laz" && filename.find(".copc.laz") == std::string::npos)
+		{
+			auto sz = std::filesystem::file_size(file);
+			files.push_back({ file, sz });
+		}
 	}
+
 	std::uint64_t totalBytes = 0;
 	std::uint64_t processedBytes = 0;
 	for (const auto& fe : files)
 	{
-		totalBytes+=std::filesystem::file_size(fe);
+		totalBytes += fe.size;
 	}
 
+
 	auto overall_start = std::chrono::high_resolution_clock::now();
-#pragma omp parallel for schedule(dynamic)
+	GDALAllRegister();
+
+	const int chunk = 5;
+
+#pragma omp parallel for schedule(dynamic, chunk)
 	for (int i = 0; i < static_cast<int>(files.size()); ++i)
 	{
 		auto file_start = std::chrono::high_resolution_clock::now(); //celkovy cas
@@ -98,33 +116,31 @@ int main(int argc, char** argv)
 		double upperLeftY = -1.0;
 
 		DataHandler* handler = new DataHandler;
-		std::string lazFileName = files[i].path().filename().string();
+		std::string lazFileName = files[i].entry.path().filename().string();
 		handler->setAreaName(std::regex_replace(lazFileName, std::regex("(\\.laz)"), ""));
 		splitString(handler->areaName(), fileNameParts);
 
-//		for (const auto& part : fileNameParts)
-//		{
-//#pragma omp critical
-//			std::cout << "file part: " << part << std::endl;
-//		}
+		//		for (const auto& part : fileNameParts)
+		//		{
+		//#pragma omp critical
+		//			std::cout << "file part: " << part << std::endl;
+		//		}
 
 		upperLeftX = std::stod(fileNameParts[1]);
 		upperLeftY = std::stod(fileNameParts[2]) + 2000.0;
 
+		std::ostringstream startMsg;
+		startMsg << i + 1 << "/" << files.size() << " Processing file '" << lazFileName << "'\n";
 #pragma omp critical
-		std::cout << i+1 <<"/"<<files.size() << " Processing file '" << lazFileName << std::endl;
+		{
+			std::cout << startMsg.str();
+		}
 
-		handler->setupAreaInfo(files[i].path().string(), upperLeftX, upperLeftY);
+		handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY);
 
-//#pragma omp critical
-//		std::cout << "area name: " << handler->areaName() << std::endl;
+		//#pragma omp critical
+		//		std::cout << "area name: " << handler->areaName() << std::endl;
 		handler->performCalculation();
-
-#pragma omp atomic
-		files_done++;
-
-#pragma omp atomic
-		processedBytes += std::filesystem::file_size(files[i]);
 
 		OutputData out = handler->getOutputData();
 
@@ -138,9 +154,8 @@ int main(int argc, char** argv)
 		double deallocationTime = std::chrono::duration_cast<std::chrono::milliseconds>(dealloc_end - dealloc_start).count() / 1000.0;
 		double fileTime = std::chrono::duration_cast<std::chrono::milliseconds>(file_end - file_start).count() / 1000.0;
 
-
-#pragma omp critical
-		csv << lazFileName << ','
+		std::ostringstream local_csv;
+		local_csv << lazFileName << ','
 			<< (out.fileSizeBytes / (1024.0 * 1024.0)) << ','
 			<< out.nPointsInMesh << ','
 			<< out.readTime << ','
@@ -151,22 +166,125 @@ int main(int argc, char** argv)
 			<< deallocationTime << ','
 			<< fileTime << '\n';
 
+		int local_done;
+		std::uint64_t local_processedBytes;
+#pragma omp critical
+		{
+			files_done++;
+			local_done = files_done;
+
+			processedBytes += files[i].size;
+			local_processedBytes = processedBytes;
+		}
+
 		auto overall_check = std::chrono::high_resolution_clock::now();
 		double progressTime = std::chrono::duration_cast<std::chrono::milliseconds>(overall_check - overall_start).count() / 1000.0;
-
-		double bytesLeft = totalBytes - processedBytes;
-		double timePerByte = progressTime / processedBytes;
+		double bytesLeft = totalBytes - local_processedBytes;
+		double timePerByte = progressTime / local_processedBytes;
 		double estimatedTimeLeft = bytesLeft * timePerByte;
 
-		std::cout << std::endl;
-		std::cout << "Done file: " << lazFileName << std::endl;
-		std::cout << "Progress: "<<files_done<<"/"<<files.size()
-			<< " ("<<processedBytes/(1024.0*1024.0) <<"MB / " 
-			<< totalBytes / (1024.0 * 1024.0) << "MB)"
-			<< std::endl ;
-		std::cout << "Elapsed time: " << formatTime(progressTime) << std::endl;
-		std::cout << "Estimated time left: " << formatTime(estimatedTimeLeft) << std::endl << std::endl;
+#pragma omp critical
+		{
+			csv << local_csv.str();
+			std::cout << "\nDone file: " << lazFileName << "\n"
+				<< "Progress: " << local_done << "/" << files.size()
+				<< " (" << local_processedBytes / (1024.0 * 1024.0) << "MB / "
+				<< totalBytes / (1024.0 * 1024.0) << "MB)\n"
+				<< "Elapsed time: " << formatTime(progressTime) << "\n"
+				<< "Estimated time left: " << formatTime(estimatedTimeLeft) << "\n\n";
+		}
 
 		fileNameParts.clear();
 	}
+}
+
+int main_curve(int argc, char** argv)
+{
+	if (argc != 2)
+	{
+		std::cout << "Usage: test_kml <KML directory>\n";
+		return -1;
+	}
+
+	std::string kmlDir = argv[1];
+
+	if (!fs::exists(kmlDir))
+	{
+		std::cerr << "Directory does not exist: " << kmlDir << "\n";
+		return -1;
+	}
+
+	ForestManager forestManager;
+	int fileCount = 0;
+
+	for (const auto& entry : fs::directory_iterator(kmlDir))
+	{
+		if (entry.is_regular_file() && entry.path().extension() == ".kml")
+		{
+			std::string filename = entry.path().string();
+			std::cout << "Loading KML: " << filename << std::endl;
+			forestManager.loadFromKML(filename);
+			fileCount++;
+		}
+	}
+
+	const auto& forests = forestManager.getForests();
+	std::cout << "Finished reading " << fileCount << " KML files.\n";
+	std::cout << "Total forests loaded: "
+		<< forests.size()
+		<< "\n\n";
+
+	std::ofstream file("pralesy.txt");
+	if (!file.is_open())
+		return false;
+
+	for (size_t i = 0; i < forests.size(); ++i)
+	{
+		const auto& forest = forests[i];
+		file << "=== Forest #" << i << " ===\n";
+		file << "Name: " << forest.getName() << "\n";
+		const auto& polys = forest.getPolygons();
+		file << "Hectares: " << forest.getHectares() << "\n";
+		file << "Polygon groups: " << polys.size() << "\n\n";
+
+		for (size_t j = 0; j < polys.size(); ++j)
+		{
+			const auto& pg = polys[j];
+			const auto& outer = pg.outer.getPoints();
+
+			file << "  PolygonGroup #" << j << ":\n";
+			file << "    Outer boundary points: " << outer.size() << "\n";
+			for (size_t k = 0; k < outer.size(); ++k)
+			{
+				const auto& p = outer[k];
+				file << "      [" << k << "] Lon=" << p.lon
+					<< ", Lat=" << p.lat
+					<< ", Alt=" << p.alt << "\n";
+			}
+
+			if (!pg.inners.empty())
+			{
+				file << "    Inner boundaries: " << pg.inners.size() << "\n";
+				for (size_t m = 0; m < pg.inners.size(); ++m)
+				{
+					const auto& inner = pg.inners[m].getPoints();
+					file << "      Inner #" << m
+						<< " points=" << inner.size() << "\n";
+				}
+			}
+
+			file << "\n";
+		}
+
+		file << "\n";
+	}
+
+	file.close();
+
+}
+
+int main(int argc, char** argv)
+{
+	//main_all_files(argc, argv);
+	main_curve(argc, argv);
 }

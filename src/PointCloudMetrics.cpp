@@ -20,8 +20,8 @@ void DataHandler::setupAreaInfo(const std::string& lazFileName, const double upp
 {
 	m_areaInfo.width_n = 2000;
 	m_areaInfo.height_n = 2000;
-	m_areaInfo.width = 1000;
-	m_areaInfo.height = 1000;
+	m_areaInfo.width = 200;
+	m_areaInfo.height = 200;
 	m_areaInfo.desiredPixelSize = m_areaInfo.width_n / m_areaInfo.width;;
 	m_areaInfo.xLeft = upperLeftX;
 	m_areaInfo.yLeft = upperLeftY;
@@ -574,7 +574,9 @@ void DataHandler::exportMetrics(std::string fileName)
 
 	//std::cout << "Exporting metrics..." << std::endl;
 	// load drivers
-	GDALAllRegister();
+
+	//GDALAllRegister();
+
 	GDALDriver* poDriver;
 	poDriver = GetGDALDriverManager()->GetDriverByName("GTiff");
 
