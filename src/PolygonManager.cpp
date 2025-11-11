@@ -1,11 +1,5 @@
 #define _USE_MATH_DEFINES
 #include "PolygonManager.h"
-#include <fstream>
-#include <sstream>
-#include <iostream>
-#include <algorithm>
-#include <cmath>
-
 
 
 bool ForestManager::loadFromKML(const std::string& filename)
@@ -28,6 +22,16 @@ bool ForestManager::loadFromKML(const std::string& filename)
 bool ForestManager::parseKML(const std::string& content)
 {
     size_t pos = 0;
+
+    OGRSpatialReference src, dst;
+    src.importFromEPSG(4326);
+    dst.importFromEPSG(8353);
+
+    src.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    dst.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
+    OGRCoordinateTransformation* tr = OGRCreateCoordinateTransformation(&src, &dst);
+
 
     while (true)
     {
@@ -113,8 +117,20 @@ bool ForestManager::parseKML(const std::string& content)
 
                         Point p;
                         pt >> p.lon >> p.lat >> p.alt;
+
+                        double x = p.lon;
+                        double y = p.lat;
+                        double z = p.alt;
+
+                        tr->Transform(1, &x, &y, &z);
+                        p.X = x;
+                        p.Y = y;
+                        p.Z = z;
+
                         outerCurve.addPoint(p);
                     }
+                    outerCurve.calculateEdgeLengths();
+                    outerCurve.calculatePerimeter();
                     pg.outer = outerCurve;
                 }
             }
@@ -158,9 +174,19 @@ bool ForestManager::parseKML(const std::string& content)
                             Point p;
                             p.alt = 0;
                             pt >> p.lon >> p.lat >> p.alt;
+
+                            double x = p.lon;
+                            double y = p.lat;
+                            double z = p.alt;
+
+                            tr->Transform(1, &x, &y, &z);
+                            p.X = x;
+                            p.Y = y;
+                            p.Z = z;
                             innerCurve.addPoint(p);
                         }
-
+                        innerCurve.calculateEdgeLengths();
+                        innerCurve.calculatePerimeter();
                         pg.inners.push_back(innerCurve);
                     }
                     ringPos = ringEnd + 13;
@@ -176,3 +202,111 @@ bool ForestManager::parseKML(const std::string& content)
     std::cout << "Loaded " << forests.size() << " polygons total.\n";
     return true;
 }
+
+void Curve::calculateEdgeLengths()
+{
+    edgeLengths.clear();
+    if (points.size() < 2) return;
+
+    double total = 0.0;
+    for (size_t i = 1; i < points.size(); i++)
+    {
+        double dx = points[i].X - points[i - 1].X;
+        double dy = points[i].Y - points[i - 1].Y;
+        double dz = points[i].Z - points[i - 1].Z;
+        double len = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+        edgeLengths.push_back(len);
+    }
+}
+
+void Forest::findBoundingBox()
+{
+    if (polygons.empty() || polygons[0].outer.getPoints().empty()) {
+        minX = maxX = minY = maxY = 0;
+        return;
+    }
+
+    //inicializacia na prvy bod s tym udem najprv porovnavat
+    minX = polygons[0].outer.getPoints()[0].X;
+    maxX= polygons[0].outer.getPoints()[0].X;
+    minY = polygons[0].outer.getPoints()[0].Y;
+    maxY = polygons[0].outer.getPoints()[0].Y;
+
+    for (auto& pg : polygons)
+    {
+        for (auto& p : pg.outer.getPoints()) {
+            minX = std::min(minX, p.X);
+            maxX = std::max(maxX, p.X);
+            minY = std::min(minY, p.Y);
+            maxY = std::max(maxY, p.Y);
+        }
+    }
+    minX = std::floor(minX / 10.0) * 10.0;
+    minY = std::floor(minY / 10.0) * 10.0;
+    maxX = std::ceil(maxX / 10.0) * 10.0;
+    maxY = std::ceil(maxY / 10.0) * 10.0;
+}
+
+void Forest::findTiles()
+{
+    tiles.clear();
+    int minTileX = static_cast<int>(std::floor(minX / 2000) * 2000);
+    int maxTileX = static_cast<int>(std::floor(maxX / 2000) * 2000);
+    int minTileY = static_cast<int>(std::floor(minY / 2000) * 2000);
+    int maxTileY = static_cast<int>(std::floor(maxY / 2000) * 2000);
+
+    for (int tx = minTileX; tx <= maxTileX; tx += 2000)
+    {
+        for (int ty = minTileY; ty <= maxTileY; ty += 2000)
+        {
+            tiles.push_back("tile_" + std::to_string(tx) + "_" + std::to_string(ty) + ".laz");
+        }
+    }
+}
+
+void Forest::calculateForestArea()
+{
+    int num = polygons.size();
+    double sum_area = 0.0;
+
+    for (int i = 0; i < num; i++)
+    {
+        double sum_area_inner = 0.0;
+        polygons[i].outer.calculateCurveArea();
+        if (!polygons[i].inners.empty())
+        {
+            int num_inners = polygons[i].inners.size();
+            for (int j = 0; j < num_inners; j++)
+            {
+                polygons[i].inners[j].calculateCurveArea();
+                sum_area_inner += polygons[i].inners[j].getcurveArea();
+            }
+        }
+        sum_area += polygons[i].outer.getcurveArea() - sum_area_inner;
+    }
+    forestArea = sum_area;
+}
+
+
+void Curve::calculatePerimeter() 
+{
+    double sum = 0.0;
+    for (int i=0;i<edgeLengths.size();i++)
+        sum += edgeLengths[i];
+    perimeter = sum;
+}
+
+void Curve::calculateCurveArea()
+{
+    //toto je na plochu jednej krivky, zvlast bude funkcia na plochu lesa lebo 1 les moze byt viac kriviek
+    double sum = 0.0;
+    for (int i = 0; i < numPoints-1; i++)
+    {
+        sum += points[i].X * points[i + 1].Y - points[i + 1].X * points[i].Y;
+    }
+    curveArea = 0.5 * fabs(sum);
+}
+
+
+

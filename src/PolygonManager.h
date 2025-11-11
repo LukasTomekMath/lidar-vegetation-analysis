@@ -1,6 +1,14 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <algorithm>
+#include <cmath>
+
+#include "libs/gdal_include/ogr_spatialref.h"
+#include "libs/gdal_include/gdal.h"
 
 struct Point {
     double lon, lat, alt;// povodne suradnice
@@ -16,10 +24,21 @@ private:
 	int length;
     double area;
 	int curvePixels;//kolko pixelov zaerie krivka
+    double perimeter;
+    double curveArea;
 public:
-    Curve() : numPoints(0), length(0), area(0.0), curvePixels(0) {}
-    void addPoint(const Point& p) { points.push_back(p); numPoints = points.size(); }
-    const std::vector<Point>& getPoints() const { return points; }
+    Curve() : numPoints(0), length(0), area(0.0), curvePixels(0),perimeter(0) {}
+    void addPoint(Point& p) { points.push_back(p); numPoints = points.size(); }
+
+
+    std::vector<Point>& getPoints()  { return points; }
+
+    void calculateEdgeLengths();
+    void calculatePerimeter();
+    void calculateCurveArea();
+
+    double getPerimeter()  { return perimeter; }
+    double getcurveArea() { return curveArea; }
 };
 
 struct PolygonGroup {
@@ -34,18 +53,32 @@ class Forest {
 private:
     std::string name;
     std::vector<PolygonGroup> polygons; //les moze mat viac polygonov a kazdy polygon moze mat dieru/y
-    double hectares = 0.0;
+    double hectares;
+    double forestArea;
     double minX, maxX, minY, maxY;
 
+    std::vector<std::string> tiles;
+
 public:
-    Forest() : hectares(0.0), minX(0), maxX(0), minY(0), maxY(0) {}
+    Forest() : hectares(0.0), forestArea(0),minX(0), maxX(0), minY(0), maxY(0) {}
+    
     const std::string& getName() const { return name; }
     void setName(const std::string& n) { name = n; }
+
+    std::vector<PolygonGroup>& getPolygons()  { return polygons; }
+    std::vector<std::string>& getTiles() { return tiles; }
+
     void addPolygon(const PolygonGroup& pg) { polygons.push_back(pg); }
-    const std::vector<PolygonGroup>& getPolygons() const { return polygons; }
     size_t getPolygonCount() { return polygons.size(); }
+
+    double getHectares() { return hectares; }
     void setHectares(double h) { hectares = h; }
-    double getHectares() const { return hectares; }
+
+    void calculateForestArea();
+    double getForestArea() { return forestArea; }
+
+    void findBoundingBox();
+    void findTiles();
 };
 
 class ForestManager {
@@ -55,7 +88,7 @@ private:
 
 public:
     ForestManager() {};
-    const std::vector<Forest>& getForests() const { return forests; }
+    std::vector<Forest>& getForests() { return forests; }
 	bool loadFromKML(const std::string& filename);
 };
 

@@ -200,13 +200,14 @@ int main_all_files(int argc, char** argv)
 
 int main_curve(int argc, char** argv)
 {
-	if (argc != 2)
+	if (argc != 3)
 	{
 		std::cout << "Usage: test_kml <KML directory>\n";
 		return -1;
 	}
 
 	std::string kmlDir = argv[1];
+	std::string lazDir = argv[2];
 
 	if (!fs::exists(kmlDir))
 	{
@@ -217,59 +218,113 @@ int main_curve(int argc, char** argv)
 	ForestManager forestManager;
 	int fileCount = 0;
 
-	for (const auto& entry : fs::directory_iterator(kmlDir))
+	for (auto& entry : fs::directory_iterator(kmlDir))
 	{
 		if (entry.is_regular_file() && entry.path().extension() == ".kml")
 		{
 			std::string filename = entry.path().string();
 			std::cout << "Loading KML: " << filename << std::endl;
+
 			forestManager.loadFromKML(filename);
 			fileCount++;
 		}
 	}
 
-	const auto& forests = forestManager.getForests();
-	std::cout << "Finished reading " << fileCount << " KML files.\n";
-	std::cout << "Total forests loaded: "
-		<< forests.size()
-		<< "\n\n";
+	auto& forests = forestManager.getForests();
 
+	std::cout << "Finished reading " << fileCount << " KML files.\n";
+	std::cout << "Total forests loaded: " << forests.size() << "\n\n";
+
+	// Output file
 	std::ofstream file("pralesy.txt");
 	if (!file.is_open())
+	{
+		std::cerr << "Could not create pralesy.txt\n";
 		return false;
+	}
+	std::ofstream tiles("tiles.txt");
+	int tile_counter = 0;
+
 
 	for (size_t i = 0; i < forests.size(); ++i)
 	{
-		const auto& forest = forests[i];
+		Forest& forest = forests[i];
+
+		//setup na konkretne subory
+		forest.calculateForestArea();
+		forest.findBoundingBox();
+		forest.findTiles();
+
+		//toto je len vypis do suboru ze tore subory treba laz
+		tiles << forest.getName() << ": \n";
+		std::vector<std::string>& subory = forest.getTiles();
+		tile_counter += subory.size();
+		for (int k = 0; k <subory.size(); k++)
+		{
+			tiles << subory[k]<<"\n";
+		}
+		tiles << "\n";
+
+		auto& polygons = forest.getPolygons();
+
 		file << "=== Forest #" << i << " ===\n";
 		file << "Name: " << forest.getName() << "\n";
-		const auto& polys = forest.getPolygons();
-		file << "Hectares: " << forest.getHectares() << "\n";
-		file << "Polygon groups: " << polys.size() << "\n\n";
+		file << std::fixed << std::setprecision(6);
+		file << "Hectares: " << forest.getForestArea()/10000.0 << "\n";
+		file << "Polygon groups: " << polygons.size() << "\n\n";
 
-		for (size_t j = 0; j < polys.size(); ++j)
+		for (size_t j = 0; j < polygons.size(); ++j)
 		{
-			const auto& pg = polys[j];
-			const auto& outer = pg.outer.getPoints();
+			PolygonGroup& pg = polygons[j];
+
+			auto& outerPoints = pg.outer.getPoints();
 
 			file << "  PolygonGroup #" << j << ":\n";
-			file << "    Outer boundary points: " << outer.size() << "\n";
-			for (size_t k = 0; k < outer.size(); ++k)
+			file << "    Outer boundary points: " << outerPoints.size() << "\n";
+			file << "    Outer perimeter: " << pg.outer.getPerimeter() << " m\n";
+
+			for (size_t k = 0; k < outerPoints.size(); ++k)
 			{
-				const auto& p = outer[k];
-				file << "      [" << k << "] Lon=" << p.lon
+				Point& p = outerPoints[k];
+
+				file << std::fixed << std::setprecision(6);
+				file << "      [" << k << "]\n";
+				file << "         Original:  Lon=" << p.lon
 					<< ", Lat=" << p.lat
 					<< ", Alt=" << p.alt << "\n";
+
+				file << std::fixed << std::setprecision(0);
+				file << "         JTSK:      X=" << p.X
+					<< ", Y=" << p.Y
+					<< ", Z=" << p.Z << "\n";
 			}
 
 			if (!pg.inners.empty())
 			{
 				file << "    Inner boundaries: " << pg.inners.size() << "\n";
+
 				for (size_t m = 0; m < pg.inners.size(); ++m)
 				{
-					const auto& inner = pg.inners[m].getPoints();
+					auto& innerPoints = pg.inners[m].getPoints();
+
 					file << "      Inner #" << m
-						<< " points=" << inner.size() << "\n";
+						<< " points = " << innerPoints.size() << "\n";
+
+					for (size_t k = 0; k < innerPoints.size(); ++k)
+					{
+						Point& p = innerPoints[k];
+
+						file << std::fixed << std::setprecision(6);
+						file << "        [" << k << "]\n";
+						file << "           Original:  Lon=" << p.lon
+							<< ", Lat=" << p.lat
+							<< ", Alt=" << p.alt << "\n";
+
+						file << std::fixed << std::setprecision(0);
+						file << "           JTSK:      X=" << p.X
+							<< ", Y=" << p.Y
+							<< ", Z=" << p.Z << "\n";
+					}
 				}
 			}
 
@@ -280,6 +335,40 @@ int main_curve(int argc, char** argv)
 	}
 
 	file.close();
+	tiles.close();
+	std::cout << "Treba " << tile_counter << " suborov laz\n";
+
+
+	int found = 0;
+	int missing = 0;
+
+	for (size_t i = 0; i < forests.size(); ++i)
+	{
+		Forest& forest = forests[i];
+		
+		auto& files = forest.getTiles();
+
+		for (int j = 0; j < files.size(); j++)
+		{
+			fs::path fullPath = fs::path(lazDir) / files[j];
+			if (fs::exists(fullPath))
+			{
+				found++;
+			}
+			else
+			{
+				std::cout << forest.getName() << "\n";
+				std::cout << "[MISSING] " << files[j] << "\n";
+				missing++;
+			}
+		}
+
+		
+	}
+	std::cout << "\nSummary:\n";
+	std::cout << "  Found:   " << found << "\n";
+	std::cout << "  Missing: " << missing << "\n";
+
 
 }
 
