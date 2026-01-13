@@ -52,6 +52,7 @@ struct FileInfo {
 	std::uint64_t size; 
 };
 
+//povodne spracovanie vsetkych suborov (bez pralesov)
 int main_all_files(int argc, char** argv)
 {
 	int nprocs = 6;
@@ -136,7 +137,7 @@ int main_all_files(int argc, char** argv)
 			std::cout << startMsg.str();
 		}
 
-		handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY);
+		handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY, upperLeftX+2000, upperLeftY-2000,10);
 
 		//#pragma omp critical
 		//		std::cout << "area name: " << handler->areaName() << std::endl;
@@ -198,11 +199,12 @@ int main_all_files(int argc, char** argv)
 	}
 }
 
+//testovanie nacitania kriviek a check ktore subory treba
 int main_curve(int argc, char** argv)
 {
 	if (argc != 3)
 	{
-		std::cout << "Usage: test_kml <KML directory>\n";
+		std::cout << "Input is: (kml directory) (laz directory)\n";
 		return -1;
 	}
 
@@ -372,8 +374,275 @@ int main_curve(int argc, char** argv)
 
 }
 
+//spracovanie vsetkych suborov S krivkami pralesov
+int main_curve_files(int argc, char** argv)
+{
+	int nprocs = 10;
+	int files_done = 0;
+	omp_set_num_threads(nprocs);
+
+	if (argc != 3)
+	{
+		std::cout << "Input is: (kml directory) (laz directory)\n";
+		return -1;
+	}
+	std::string kmlDir = argv[1];
+	std::string lazDir = argv[2];
+
+
+	if (!fs::exists(kmlDir))
+	{
+		std::cerr << "Directory does not exist: " << kmlDir << "\n";
+		return -1;
+	}
+	if (!fs::exists(lazDir))
+	{
+		std::cerr << "Directory does not exist: " << lazDir << "\n";
+		return -1;
+	}
+
+
+	std::ofstream csv("processing_stats.csv", std::ios::trunc);
+	csv << "Tile,File_MB,PointsInMesh,ReadTime_s,NormalizationTime_s,RedistributionTime_s,MetricsTime_s,ExportTime_s,DeallocationTime_s,OverallTime_s\n";
+
+	ForestManager forestManager;
+	int fileCount = 0;
+
+	for (auto& entry : fs::directory_iterator(kmlDir))
+	{
+		if (entry.is_regular_file() && entry.path().extension() == ".kml")
+		{
+			std::string filename = entry.path().string();
+			std::cout << "Loading KML: " << filename << std::endl;
+
+			forestManager.loadFromKML(filename);
+			fileCount++;
+		}
+	}
+	auto& forests = forestManager.getForests();
+	std::cout << "Finished reading " << fileCount << " KML files.\n";
+	std::cout << "Total forests loaded: " << forests.size() << "\n\n";
+
+
+	std::uint64_t totalBytes = 0;
+	std::uint64_t processedBytes = 0;
+
+	int num_files = 0;
+	for (size_t i = 0; i < forests.size(); ++i)
+	{
+		Forest& forest = forests[i];
+
+		//setup na konkretne subory
+		forest.calculateForestArea();//tuto sa aj vymazavaju tie male inners lebo e to viazane na rozlohu
+		forest.findBoundingBox();
+		forest.findTiles();
+		for (const auto& fe : forest.getTiles())
+		{
+			fs::path fullPath = fs::path(lazDir) / fe;
+			if (fs::exists(fullPath)) {
+				totalBytes += fs::file_size(fullPath);
+				num_files++;
+			}
+		}
+	}
+	//lesy su nacitane, teraz by sa malo vsetko citat, cize cela laz sekcia kodu
+
+	auto overall_start = std::chrono::high_resolution_clock::now();
+	GDALAllRegister();
+
+	const int chunk = 5;
+
+	//pre kazdy les musim najst tiles ktore treba 
+#pragma omp parallel for schedule(dynamic, chunk)
+	for (int i = 0; i < forests.size(); ++i)
+	{
+		Forest& forest = forests[i];
+		auto& files = forest.getTiles(); //toto su tie subory co chcem precitat pre dany les
+
+		for (int j = 0; j < files.size(); j++)//prechadzanie cez jednotlive subory
+		{
+			fs::path fullPath = fs::path(lazDir) / files[j];//cela cest k suboru, tu chcem citat
+			
+
+			if (fs::exists(fullPath))
+			{
+				//co sa ma spravit ked sa konkretny subor najde- vypocita sa co sa ma
+				auto file_start = std::chrono::high_resolution_clock::now(); //celkovy cas
+
+				std::vector<std::string> fileNameParts; 
+				double upperLeftX = -1.0; 
+				double upperLeftY = -1.0; 
+				double lowerRightX = -1.0;
+				double lowerRightY = -1.0;
+
+				DataHandler* handler = new DataHandler; 
+				std::string lazFileName = files[j];
+				handler->setAreaName(std::regex_replace(lazFileName, std::regex("(\\.laz)"), "")); 
+				handler->setForestName(std::regex_replace(forest.getName(), std::regex(" "), "_"));
+
+				splitString(handler->areaName(), fileNameParts); 
+
+				//informacie o danej tile
+				upperLeftX = std::stod(fileNameParts[1]); 
+				upperLeftY = std::stod(fileNameParts[2]) + 2000.0; 
+				lowerRightX = upperLeftX + 2000.0;
+				lowerRightY = std::stod(fileNameParts[2]);
+
+				double clippedMinX = std::max(forest.getMinX(), upperLeftX);	//upper left X
+				double clippedMaxX = std::min(forest.getMaxX(), lowerRightX);	//lower right X
+				double clippedMinY = std::max(forest.getMinY(), lowerRightY);	//lower right Y
+				double clippedMaxY = std::min(forest.getMaxY(), upperLeftY);	//upper left Y
+
+
+				if (clippedMinX >= clippedMaxX || clippedMinY >= clippedMaxY) {
+					continue;
+				}
+
+				int pixelsize = forest.getPixelSize();
+
+
+				std::ostringstream startMsg; 
+				startMsg << i + 1 << "/" << num_files << " Processing file '" << lazFileName << "'\n"; 
+#pragma omp critical
+				{
+					std::cout << startMsg.str();
+				}
+
+				handler->setupAreaInfo(fullPath.string(), clippedMinX, clippedMaxY, clippedMaxX, clippedMinY, pixelsize);
+
+				handler->performCalculation();
+
+				OutputData out = handler->getOutputData();
+
+				auto dealloc_start = std::chrono::high_resolution_clock::now();
+				delete handler;
+				auto dealloc_end = std::chrono::high_resolution_clock::now();
+
+
+				auto file_end = std::chrono::high_resolution_clock::now();
+
+				double deallocationTime = std::chrono::duration_cast<std::chrono::milliseconds>(dealloc_end - dealloc_start).count() / 1000.0;
+				double fileTime = std::chrono::duration_cast<std::chrono::milliseconds>(file_end - file_start).count() / 1000.0;
+
+				std::ostringstream local_csv;
+				local_csv << lazFileName << ','
+					<< (out.fileSizeBytes / (1024.0 * 1024.0)) << ','
+					<< out.nPointsInMesh << ','
+					<< out.readTime << ','
+					<< out.normalizationTime << ','
+					<< out.redistributionTime << ','
+					<< out.metricsTime << ','
+					<< out.exportTime << ','
+					<< deallocationTime << ','
+					<< fileTime << '\n';
+
+				int local_done;
+				std::uint64_t local_processedBytes;
+#pragma omp critical
+				{
+					files_done++;
+					local_done = files_done;
+
+					processedBytes += std::filesystem::file_size(fullPath);
+					local_processedBytes = processedBytes;
+				}
+
+				auto overall_check = std::chrono::high_resolution_clock::now();
+				double progressTime = std::chrono::duration_cast<std::chrono::milliseconds>(overall_check - overall_start).count() / 1000.0;
+				double bytesLeft = totalBytes - local_processedBytes;
+				double timePerByte = progressTime / local_processedBytes;
+				double estimatedTimeLeft = bytesLeft * timePerByte;
+
+#pragma omp critical
+				{
+					csv << local_csv.str();
+					std::cout << "\nDone file: " << lazFileName << "\n"
+						<< "Progress: " << local_done << "/" << num_files
+						<< " (" << local_processedBytes / (1024.0 * 1024.0) << "MB / "
+						<< totalBytes / (1024.0 * 1024.0) << "MB)\n"
+						<< "Elapsed time: " << formatTime(progressTime) << "\n"
+						<< "Estimated time left: " << formatTime(estimatedTimeLeft) << "\n\n";
+				}
+
+				fileNameParts.clear();
+
+			}
+			else
+			{
+				//co sa ma spravit ked sa nenajde- nic
+				std::cout << forest.getName() << "\n";
+				std::cout << "[MISSING] " << files[j] << "\n";
+			}
+		}
+
+
+	}
+
+}
+
+//nacitanie kriviek, maska, feature vektory
+int main_features(int argc, char** argv)
+{
+	int nprocs = 10;
+	int files_done = 0;
+	omp_set_num_threads(nprocs);
+	GDALAllRegister();
+
+	if (argc != 2)
+	{
+		return -1;
+	}
+	std::string kmlDir = argv[1];
+	std::string outDir = "../../../masky";
+
+
+	if (!fs::exists(kmlDir))
+	{
+		std::cerr << "Directory does not exist: " << kmlDir << "\n";
+		return -1;
+	}
+
+
+	ForestManager forestManager;
+	int fileCount = 0;
+
+	for (auto& entry : fs::directory_iterator(kmlDir))
+	{
+		if (entry.is_regular_file() && entry.path().extension() == ".kml")
+		{
+			std::string filename = entry.path().string();
+			std::cout << "Loading KML: " << filename << std::endl;
+
+			forestManager.loadFromKML(filename);
+			fileCount++;
+		}
+	}
+	auto& forests = forestManager.getForests();
+	std::cout << "Finished reading " << fileCount << " KML files.\n";
+	std::cout << "Total forests loaded: " << forests.size() << "\n\n";
+
+	std::cout << "Processin masks " << "\n\n";
+	int num_files = 0;
+	for (size_t i = 0; i < forests.size(); ++i)
+	{
+		Forest& forest = forests[i];
+
+		//setup na konkretne subory
+		forest.calculateForestArea();
+		forest.findBoundingBox();
+		forest.createMask();
+
+		std::string outFilename = outDir + "/mask_forest_" + forest.getName() + ".tif";
+		forest.exportMaskToGeoTIFF(outFilename);
+
+	}
+	std::cout << "Masks done" << "\n\n";
+}
+
 int main(int argc, char** argv)
 {
 	//main_all_files(argc, argv);
-	main_curve(argc, argv);
+	//main_curve(argc, argv);
+	//main_curve_files(argc, argv);
+	main_features(argc, argv);
 }

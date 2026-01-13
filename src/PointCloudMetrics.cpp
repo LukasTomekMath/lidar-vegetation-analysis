@@ -16,13 +16,18 @@ DataHandler::~DataHandler()
 	}
 }
 
-void DataHandler::setupAreaInfo(const std::string& lazFileName, const double upperLeftX, const double upperLeftY)
+void DataHandler::setupAreaInfo(const std::string& lazFileName, const double upperLeftX, const double upperLeftY, const double lowerRightX, const double lowerRightY, const int pixelSize)
 {
-	m_areaInfo.width_n = 2000;
-	m_areaInfo.height_n = 2000;
-	m_areaInfo.width = 200;
-	m_areaInfo.height = 200;
-	m_areaInfo.desiredPixelSize = m_areaInfo.width_n / m_areaInfo.width;;
+	//m_areaInfo.width_n = 2000;
+	//m_areaInfo.height_n = 2000;
+	//m_areaInfo.width = 200;
+	//m_areaInfo.height = 200;
+	//m_areaInfo.desiredPixelSize = m_areaInfo.width_n / m_areaInfo.width;
+	m_areaInfo.width_n = std::abs(lowerRightX - upperLeftX);
+	m_areaInfo.height_n = std::abs(upperLeftY - lowerRightY);
+	m_areaInfo.width = m_areaInfo.width_n / pixelSize;
+	m_areaInfo.height = m_areaInfo.height_n / pixelSize;
+	m_areaInfo.desiredPixelSize = pixelSize;
 	m_areaInfo.xLeft = upperLeftX;
 	m_areaInfo.yLeft = upperLeftY;
 	m_areaInfo.lazFileName = lazFileName;
@@ -35,7 +40,6 @@ bool DataHandler::performCalculation()
 	// std::cout << "(x,y): [" << m_areaInfo.xLeft << ", " << m_areaInfo.yLeft << "]\n";
 
 	auto reading_start = std::chrono::high_resolution_clock::now();
-
 	if (!readLazFile())
 	{
 		std::cout << "failed to read '" << m_areaInfo.lazFileName << "' file, computation will not proceed further" << std::endl;
@@ -78,13 +82,15 @@ bool DataHandler::readLazFile()
 	std::string fileName = "";
 	int nPointsInMesh = 0;
 
-
+	
 	int nPixels = m_areaInfo.width_n * m_areaInfo.height_n;
 	m_meshPixels.resize(nPixels, PixelPoints());
+
+
 	//m_DTM = new double[nPixels] { 0.0 };
 
 	auto start = std::chrono::high_resolution_clock::now();
-
+	
 	// TODO: tento for cyklus sa moze dat prec a nacita sa iba jeden LAZ subor, ktoreho nazov by mohol byt ulozeny v `m_areaInfo`, inak kod ohladom citania a ukladania hodnot netreba menit
 	lasReadOpener.add_file_name(m_areaInfo.lazFileName.c_str());
 
@@ -570,7 +576,24 @@ void DataHandler::exportMetrics(std::string fileName)
 	//fileName = std::string("../../_exportedTIFs/").append(fileName);
 	// fileName = std::string(".\\") + fileName.append(".tif");
 	// fileName += std::string("_h=") + std::to_string(m_areaInfo.desiredPixelSize) + std::string("m");
-	fileName = "../../../raster_metrics/"+ fileName + ".tif";
+
+
+	fileName = "../../../pralesy_metriky_5x5/"+ fileName+"_"+m_forestName + ".tif";
+	
+
+	//std::string basePath = "../../../pralesy_metriky/";
+	//std::string baseName = fileName; 
+
+	//std::string finalPath = basePath + baseName + ".tif";
+
+	//int suffix = 1;
+	//while (std::filesystem::exists(finalPath))
+	//{
+	//	finalPath = basePath + baseName + "_" + std::to_string(suffix) + ".tif";
+	//	suffix++;
+	//}
+
+	//fileName = finalPath;
 
 	//std::cout << "Exporting metrics..." << std::endl;
 	// load drivers
@@ -843,4 +866,7 @@ void DataHandler::reset()
 	m_metrics.clear();
 	std::cout << "metrics cleared\n";
 }
+
+
+
 

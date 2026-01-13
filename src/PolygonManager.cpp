@@ -1,4 +1,4 @@
-#define _USE_MATH_DEFINES
+﻿#define _USE_MATH_DEFINES
 #include "PolygonManager.h"
 
 
@@ -227,6 +227,9 @@ void Forest::findBoundingBox()
         return;
     }
 
+    int pad = padding*pixelSize;//tu bude potom nejaký padding, este neviem ako, asi podla velkosti mriezky aeo taak
+    //aleo mozno to bude member classy, este nvm
+
     //inicializacia na prvy bod s tym udem najprv porovnavat
     minX = polygons[0].outer.getPoints()[0].X;
     maxX= polygons[0].outer.getPoints()[0].X;
@@ -242,10 +245,10 @@ void Forest::findBoundingBox()
             maxY = std::max(maxY, p.Y);
         }
     }
-    minX = std::floor(minX / 10.0) * 10.0;
-    minY = std::floor(minY / 10.0) * 10.0;
-    maxX = std::ceil(maxX / 10.0) * 10.0;
-    maxY = std::ceil(maxY / 10.0) * 10.0;
+    minX = std::floor(minX / 10.0) * 10.0 -pad;
+    minY = std::floor(minY / 10.0) * 10.0-pad;
+    maxX = std::ceil(maxX / 10.0) * 10.0 +pad;
+    maxY = std::ceil(maxY / 10.0) * 10.0+pad;
 }
 
 void Forest::findTiles()
@@ -272,18 +275,30 @@ void Forest::calculateForestArea()
 
     for (int i = 0; i < num; i++)
     {
+        PolygonGroup& pg = polygons[i];
+
         double sum_area_inner = 0.0;
-        polygons[i].outer.calculateCurveArea();
+        pg.outer.calculateCurveArea();
         if (!polygons[i].inners.empty())
         {
-            int num_inners = polygons[i].inners.size();
+            int num_inners = pg.inners.size();
             for (int j = 0; j < num_inners; j++)
             {
-                polygons[i].inners[j].calculateCurveArea();
-                sum_area_inner += polygons[i].inners[j].getcurveArea();
+                pg.inners[j].calculateCurveArea();
+                double area = std::abs(pg.inners[j].getcurveArea());
+                if (area < 1)
+                {
+                    pg.inners.erase(pg.inners.begin() + j);
+                    num_inners--;
+                    j--;
+                }
+                else
+                {
+                    sum_area_inner += area;
+                }
             }
         }
-        sum_area += polygons[i].outer.getcurveArea() - sum_area_inner;
+        sum_area += pg.outer.getcurveArea() - sum_area_inner;
     }
     forestArea = sum_area;
 }
@@ -310,3 +325,163 @@ void Curve::calculateCurveArea()
 
 
 
+void Forest::rasteriseCurve(Curve& curve, std::vector<std::vector<bool>>& mask, double gridX0, double gridY0, int nx,
+    int ny, double pixelSize, bool fillValue)
+{
+    //chcem to mat vseoebcne, lebo rovnko musim riesit outer aj inner boundary- pre outer vyplnam true (je vnutri), pre inner vyplnam false(je vonku)
+    //je to ale vlastne iba scan line alg jak na PG
+    //curve= krivka ktoru riesim, mask= kam zapisujem, gridX0 a gridY0= pociatocna suradnica (vlavo dole), nx a ny=pocet pixelov ktore riesim, fillvalue= ci to budem vyplnat true alebo false
+
+    auto& pts = curve.getPoints();
+    int n = pts.size();
+
+    for (int j = 0; j < ny; j++)
+    {
+        //y-ova suradnica ktorej idem hladat priesecniky
+        double y = gridY0 + (j + 0.5) * pixelSize;//pozicia stredu pixela v pociatku danej olasti
+        std::vector<double> xIntersections;
+
+        for (int i = 0; i < n - 1; i++)
+        {
+            //hrana ktoru prave idem riesit ci ma s mojim riadku priesecnik
+            Point& a = pts[i];
+            Point& b = pts[i + 1];
+
+            if ((a.Y > y && b.Y < y) || (a.Y < y && b.Y > y))
+            {
+                //upravenie parametrizacie usecky, hladam t pre ktore je priesecnik, potom že ake je to x
+                //x(t) = x1 + t (x2 - x1)
+                //y(t) = y1 + t(y2 - y1)
+                double t = (y - a.Y) / (b.Y - a.Y);
+                double x = a.X + t * (b.X - a.X);
+                xIntersections.push_back(x);
+            }
+        }
+
+        if (xIntersections.size() < 2)
+            continue;
+
+        std::sort(xIntersections.begin(), xIntersections.end());
+
+        for (int k = 0; k < xIntersections.size() - 1; k += 2)
+        {
+            //ak to ma na danom riadku viac priesecnikov, tak
+            //x1----vnutri---x2---vonku---x3---vnutri---x4 atd takze zaciatocny pre "dnu" je kazdy druhy (0,2,..)
+            double x0 = xIntersections[k];
+            double x1 = xIntersections[k + 1];
+
+            //pozeram ze ktory v poradi pixel je zaciatocny a koncovy pre "vnutri"
+            //tie -0.5 zabecpecia ze len stred pixela ktory je vnutri bude dany ako vnutri
+            int iStart = std::ceil((x0 - gridX0) / pixelSize - 0.5);
+            int iEnd = std::floor((x1 - gridX0) / pixelSize - 0.5);
+
+            iStart = std::max(iStart, 0);
+            iEnd = std::min(iEnd, nx - 1);
+
+
+            for (int i = iStart; i <= iEnd; ++i)
+            {
+                mask[j][i] = fillValue;
+            }
+        }
+    }
+}
+
+void Forest::createMask()
+{
+    int nx = std::ceil((maxX - minX) / pixelSize);
+    int ny = std::ceil((maxY - minY) / pixelSize);
+
+    double gridX0 = minX;
+    double gridY0 = minY;
+
+    mask.assign(ny, std::vector<bool>(nx, false));
+
+
+    for (int i = 0; i < polygons.size(); i++)
+    {
+        PolygonGroup& pg = polygons[i];
+
+        //outer je vzdy len jedna krivka:
+        rasteriseCurve(pg.outer, mask, gridX0, gridY0, nx, ny, pixelSize, true);
+
+        //inner cisto teoreticky moze yt aj viac, aj ked myslim ze neni ak dam prec tie smeti male
+        for (int inner = 0; inner < pg.inners.size(); inner++)
+        {
+            Curve& innerCurve = pg.inners[inner];
+            rasteriseCurve(innerCurve, mask, gridX0, gridY0, nx, ny, pixelSize, false);
+        }
+    }
+}
+
+void Forest::exportMaskToGeoTIFF(const std::string& filename)
+{
+    int ny = mask.size();
+    int nx = mask.empty() ? 0 : mask[0].size();
+    if (nx == 0 || ny == 0) return;
+
+    GDALAllRegister(); 
+
+    GDALDriver* driver = GetGDALDriverManager()->GetDriverByName("GTiff");
+    if (!driver)
+    {
+        std::cerr << "GTiff driver not available\n";
+        return;
+    }
+
+    GDALDataset* ds = driver->Create(
+        filename.c_str(),
+        nx,
+        ny,
+        1,
+        GDT_Byte,
+        nullptr
+    );
+
+    if (!ds)
+    {
+        std::cerr << "Failed to create GeoTIFF\n";
+        return;
+    }
+
+    // GeoTransform: row 0 = top
+    double geoTransform[6] = { 0 };
+    geoTransform[0] = minX;       // top-left X
+    geoTransform[1] = pixelSize;  // pixel width
+    geoTransform[2] = 0.0;
+    geoTransform[3] = maxY;       // top-left Y
+    geoTransform[4] = 0.0;
+    geoTransform[5] = -pixelSize; // negative to flip Y
+    ds->SetGeoTransform(geoTransform);
+
+    // Set projection via EPSG
+    OGRSpatialReference srs;
+    srs.importFromEPSG(5514); // JTSK / Krovak
+    char* wkt = nullptr;
+    srs.exportToWkt(&wkt);
+    ds->SetProjection(wkt);
+    CPLFree(wkt);
+
+    // Write mask, flipping vertically so row 0 = north
+    GDALRasterBand* band = ds->GetRasterBand(1);
+    std::vector<uint8_t> row(nx);
+
+    for (int y = 0; y < ny; ++y)
+    {
+        int maskRow = ny - 1 - y; // flip: mask row 0 (south) → band row ny-1
+        for (int x = 0; x < nx; ++x)
+            row[x] = mask[maskRow][x] ? 1 : 0;
+
+        band->RasterIO(
+            GF_Write,
+            0, y,
+            nx, 1,
+            row.data(),
+            nx, 1,
+            GDT_Byte,
+            0, 0
+        );
+    }
+
+    GDALClose(ds);
+}

@@ -120,10 +120,11 @@ public:
 
 	typedef std::vector<std::string> StringList;
 
-	void setupAreaInfo(const std::string &lazFileName, const double upperLeftX, const double upperLeftY);
+	void setupAreaInfo(const std::string &lazFileName, const double upperLeftX, const double upperLeftY, const double lowerRightX, const double lowerRightY, const int pixelSize);
 	void reset();
 	bool performCalculation();
 	void setAreaName(const std::string &name) { m_areaName = name; }
+	void setForestName(const std::string& name) { m_forestName = name; }//toto je na nazov lesa. v jednom tile moze byt viac lesov
 	const std::string areaName() { return m_areaName;}
 	const OutputData& getOutputData() { return m_output; }
 
@@ -134,6 +135,7 @@ private:
 	std::vector<PixelPoints> m_meshPixelsRedistributed;
 	std::vector<double *> m_metrics;
 	std::string m_areaName = "";
+	std::string m_forestName="";
 
 	StringList m_bandNames = {"Hmax", "Hmean", "Hmedian", "Hp25", "Hp75", "Hp95", "PPR", "DAM_z", "BR_below_1", "BR_1_2", "BR_2_3", "BR_above_3", "BR_3_4", "BR_4_5", "BR_below_5", "BR_5_20", "BR_above_20", "Coeff_var_z", "Hkurt", "Hskew", "Hstd", "Hvar", "Shannon"};
 
