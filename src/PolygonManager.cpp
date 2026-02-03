@@ -18,6 +18,19 @@ bool ForestManager::loadFromKML(const std::string& filename)
     return parseKML(buffer.str());
 }
 
+Forest* ForestManager::getForestByFileName(const std::string& fileName)
+{
+    std::string modifiedName = fileName;
+    std::replace(modifiedName.begin(), modifiedName.end(), '_', ' ');
+
+    for (auto& forest : forests)
+    {
+        if (forest.getName() == modifiedName)
+            return &forest;
+    }
+    return nullptr;
+}
+
 
 bool ForestManager::parseKML(const std::string& content)
 {
@@ -338,7 +351,7 @@ void Forest::rasteriseCurve(Curve& curve, std::vector<std::vector<bool>>& mask, 
     for (int j = 0; j < ny; j++)
     {
         //y-ova suradnica ktorej idem hladat priesecniky
-        double y = gridY0 + (j + 0.5) * pixelSize;//pozicia stredu pixela v pociatku danej olasti
+        double y = gridY0 - (j + 0.5) * pixelSize;//pozicia stredu pixela v pociatku danej olasti
         std::vector<double> xIntersections;
 
         for (int i = 0; i < n - 1; i++)
@@ -392,8 +405,9 @@ void Forest::createMask()
     int nx = std::ceil((maxX - minX) / pixelSize);
     int ny = std::ceil((maxY - minY) / pixelSize);
 
+	//"zaciatok" gridu je v lavom hornom rohu, ale y ide dole, takze y0 je maxY
     double gridX0 = minX;
-    double gridY0 = minY;
+    double gridY0 = maxY;
 
     mask.assign(ny, std::vector<bool>(nx, false));
 
@@ -420,8 +434,6 @@ void Forest::exportMaskToGeoTIFF(const std::string& filename)
     int nx = mask.empty() ? 0 : mask[0].size();
     if (nx == 0 || ny == 0) return;
 
-    GDALAllRegister(); 
-
     GDALDriver* driver = GetGDALDriverManager()->GetDriverByName("GTiff");
     if (!driver)
     {
@@ -444,7 +456,7 @@ void Forest::exportMaskToGeoTIFF(const std::string& filename)
         return;
     }
 
-    // GeoTransform: row 0 = top
+
     double geoTransform[6] = { 0 };
     geoTransform[0] = minX;       // top-left X
     geoTransform[1] = pixelSize;  // pixel width
@@ -454,23 +466,21 @@ void Forest::exportMaskToGeoTIFF(const std::string& filename)
     geoTransform[5] = -pixelSize; // negative to flip Y
     ds->SetGeoTransform(geoTransform);
 
-    // Set projection via EPSG
+
     OGRSpatialReference srs;
-    srs.importFromEPSG(5514); // JTSK / Krovak
+    srs.importFromEPSG(5514); 
     char* wkt = nullptr;
     srs.exportToWkt(&wkt);
     ds->SetProjection(wkt);
     CPLFree(wkt);
 
-    // Write mask, flipping vertically so row 0 = north
     GDALRasterBand* band = ds->GetRasterBand(1);
     std::vector<uint8_t> row(nx);
 
     for (int y = 0; y < ny; ++y)
     {
-        int maskRow = ny - 1 - y; // flip: mask row 0 (south) → band row ny-1
         for (int x = 0; x < nx; ++x)
-            row[x] = mask[maskRow][x] ? 1 : 0;
+            row[x] = mask[y][x] ? 1 : 0;
 
         band->RasterIO(
             GF_Write,
@@ -482,6 +492,7 @@ void Forest::exportMaskToGeoTIFF(const std::string& filename)
             0, 0
         );
     }
+
 
     GDALClose(ds);
 }

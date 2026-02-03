@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 
+
 #include "libs/gdal_include/ogr_spatialref.h"
 #include "libs/gdal_include/gdal.h"
 #include "libs/gdal_include/gdal_priv.h"
@@ -113,6 +114,7 @@ public:
     ForestManager() {};
     std::vector<Forest>& getForests() { return forests; }
 	bool loadFromKML(const std::string& filename);
+    Forest* getForestByFileName(const std::string& name);
 };
 
 

@@ -52,6 +52,130 @@ struct FileInfo {
 	std::uint64_t size; 
 };
 
+//structura na precitany tif subor
+struct RasterData
+{
+	int nx = 0;
+	int ny = 0;
+	int nBands = 0;
+	std::vector<std::vector<double>> bands; // [band][y*nx + x]
+};
+
+//len na zednodusenie prace s metrikami a co mam z nich ratat
+struct MetricStats
+{
+	double mean;
+	double std;
+	double min;
+	double max;
+};
+
+//samotny vysledny feature vector pre dany prales
+struct FeatureVector
+{
+	std::string forestName;
+	std::vector<MetricStats> metrics; 
+};
+
+
+//citanie tif subboru na spracovanie pomocou masky
+RasterData readGeoTiff(const std::string& filename)
+{
+	RasterData out;
+
+	GDALDataset* ds = (GDALDataset*)GDALOpen(filename.c_str(), GA_ReadOnly);
+	if (!ds)
+		throw std::runtime_error("Failed to open " + filename);
+
+	out.nx = ds->GetRasterXSize();
+	out.ny = ds->GetRasterYSize();
+	out.nBands = ds->GetRasterCount();
+
+	out.bands.resize(out.nBands);
+
+	for (int b = 0; b < out.nBands; ++b)
+	{
+		GDALRasterBand* band = ds->GetRasterBand(b + 1);
+		out.bands[b].resize(out.nx * out.ny);
+
+		band->RasterIO(GF_Read,
+			0, 0,
+			out.nx, out.ny,
+			out.bands[b].data(),
+			out.nx, out.ny,
+			GDT_Float64,
+			0, 0);
+	}
+
+	GDALClose(ds);
+	return out;
+}
+
+void applyMask(RasterData& r, const std::vector<std::vector<bool>>& mask, double noData)
+{
+	for (int y = 0; y < r.ny; ++y)
+	{
+		for (int x = 0; x < r.nx; ++x)
+		{
+			if (!mask[y][x])   // outside forest
+			{
+				int idx = y * r.nx + x;
+				for (int b = 0; b < r.nBands; ++b)
+				{
+					r.bands[b][idx] = noData;
+				}
+			}
+		}
+	}
+}
+
+void writeMaskedTif(const std::string& outPath, const RasterData& r, GDALDataset* srcDS, double noData)
+{
+	GDALDriver* driver = GetGDALDriverManager()->GetDriverByName("GTiff");
+
+	GDALDataset* out = driver->Create(outPath.c_str(), r.nx, r.ny, r.nBands, GDT_Float64, nullptr);
+
+	// copy geotransform + projection
+	double gt[6];
+	srcDS->GetGeoTransform(gt);
+	out->SetGeoTransform(gt);
+
+	out->SetProjection(srcDS->GetProjectionRef());
+
+	for (int b = 0; b < r.nBands; ++b)
+	{
+		GDALRasterBand* band = out->GetRasterBand(b + 1);
+		band->SetNoDataValue(noData);
+		band->RasterIO(GF_Write, 0, 0, r.nx, r.ny,
+			(void*)r.bands[b].data(), r.nx, r.ny,
+			GDT_Float64, 0, 0);
+	}
+
+	GDALClose(out);
+}
+
+void debugMaskCheck(const std::string& inTif,
+	const std::string& outTif,
+	const std::vector<std::vector<bool>>& mask)
+{
+	GDALAllRegister();
+
+	GDALDataset* src = (GDALDataset*)GDALOpen(inTif.c_str(), GA_ReadOnly);
+	if (!src) throw std::runtime_error("Cannot open input TIF");
+
+	RasterData r = readGeoTiff(inTif);
+
+	double no_data = -9999.0;
+	applyMask(r, mask, no_data);
+
+	writeMaskedTif(outTif, r, src, no_data);
+
+	GDALClose(src);
+}
+
+
+
+
 //povodne spracovanie vsetkych suborov (bez pralesov)
 int main_all_files(int argc, char** argv)
 {
@@ -502,7 +626,7 @@ int main_curve_files(int argc, char** argv)
 
 
 				std::ostringstream startMsg; 
-				startMsg << i + 1 << "/" << num_files << " Processing file '" << lazFileName << "'\n"; 
+				startMsg << i + 1 << "/" << num_files << " Processing file '" << lazFileName << "' for"<< forest.getName()<<"\n";
 #pragma omp critical
 				{
 					std::cout << startMsg.str();
@@ -570,6 +694,7 @@ int main_curve_files(int argc, char** argv)
 			else
 			{
 				//co sa ma spravit ked sa nenajde- nic
+				files_done++;
 				std::cout << forest.getName() << "\n";
 				std::cout << "[MISSING] " << files[j] << "\n";
 			}
@@ -580,19 +705,23 @@ int main_curve_files(int argc, char** argv)
 
 }
 
-//nacitanie kriviek, maska, feature vektory
+//nacitanie kriviek, maska, TO DO:feature vektory
 int main_features(int argc, char** argv)
 {
 	int nprocs = 10;
 	int files_done = 0;
 	omp_set_num_threads(nprocs);
+	std::cout << "Program started\n";
 	GDALAllRegister();
+	std::cout << "GDAL version: " << GDALVersionInfo("RELEASE_NAME") << "\n";
 
-	if (argc != 2)
+	if (argc != 3)
 	{
+		std::cout << "Input is: (kml directory) (tif directory)\n";
 		return -1;
 	}
 	std::string kmlDir = argv[1];
+	std::string tifDir = argv[2];
 	std::string outDir = "../../../masky";
 
 
@@ -632,11 +761,50 @@ int main_features(int argc, char** argv)
 		forest.findBoundingBox();
 		forest.createMask();
 
-		std::string outFilename = outDir + "/mask_forest_" + forest.getName() + ".tif";
+		std::string outFilename = outDir + "/mask_forest_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".tif";
 		forest.exportMaskToGeoTIFF(outFilename);
 
 	}
 	std::cout << "Masks done" << "\n\n";
+
+
+	//tu zacinaju features
+	std::vector<std::string> files;
+
+	//vytvorenie vektora so subormi
+	for (const auto& entry : fs::directory_iterator(tifDir))
+	{
+		if (!entry.is_regular_file()) continue;
+
+		auto path = entry.path();
+		if (path.extension() == ".tif")
+		{
+			files.push_back(path.string());
+		}
+	}
+	
+	//iterovanie cez jednotlive subory tif
+	for (const auto& tifPath : files)
+	{
+		RasterData raster = readGeoTiff(tifPath);
+
+		auto stem = std::filesystem::path(tifPath).stem().string();
+
+		Forest* forest = forestManager.getForestByFileName(stem);
+
+		if (!forest) {
+			std::cout << "No mask for forest: " << stem << "\n";
+			continue;
+		}
+		else
+		{
+			std::cout << "Mask found for: " << stem << "\n";
+		}
+
+		//tu bude to pocitanie features
+	}
+
+
 }
 
 int main(int argc, char** argv)
