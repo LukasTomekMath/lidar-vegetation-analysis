@@ -14,6 +14,8 @@
 // GDAL include
 #include "libs/gdal_include/gdal_priv.h"
 #include "libs/gdal_include/gdal.h"
+#include "libs/gdal_include/ogrsf_frmts.h"
+#include "libs/gdal_include/cpl_conv.h"
 
 // LASTools include
 #include "libs/LAStools_include/LASlib/lasreader.hpp"
@@ -87,18 +89,18 @@ RasterData readGeoTiff(const std::string& filename)
 	if (!ds)
 		throw std::runtime_error("Failed to open " + filename);
 
-	out.nx = ds->GetRasterXSize();
-	out.ny = ds->GetRasterYSize();
-	out.nBands = ds->GetRasterCount();
+	out.nx = GDALGetRasterXSize(ds);
+	out.ny = GDALGetRasterYSize(ds);
+	out.nBands = GDALGetRasterCount(ds);
 
 	out.bands.resize(out.nBands);
 
 	for (int b = 0; b < out.nBands; ++b)
 	{
-		GDALRasterBand* band = ds->GetRasterBand(b + 1);
+		GDALRasterBandH band = GDALGetRasterBand(ds, b + 1);
 		out.bands[b].resize(out.nx * out.ny);
 
-		band->RasterIO(GF_Read,
+		GDALRasterIO(band, GF_Read,
 			0, 0,
 			out.nx, out.ny,
 			out.bands[b].data(),
@@ -573,6 +575,7 @@ int main_curve_files(int argc, char** argv)
 
 	auto overall_start = std::chrono::high_resolution_clock::now();
 	GDALAllRegister();
+	OGRRegisterAll();
 
 	const int chunk = 5;
 
@@ -799,6 +802,9 @@ int main_features(int argc, char** argv)
 		else
 		{
 			std::cout << "Mask found for: " << stem << "\n";
+			debugMaskCheck(tifPath,
+				"../../../masky/TEST_" + stem + ".tif",
+				forest->getMask());
 		}
 
 		//tu bude to pocitanie features

@@ -135,7 +135,7 @@ bool ForestManager::parseKML(const std::string& content)
                         double y = p.lat;
                         double z = p.alt;
 
-                        tr->Transform(1, &x, &y, &z);
+                        OCTTransform(tr,1, &x, &y, &z);
                         p.X = x;
                         p.Y = y;
                         p.Z = z;
@@ -192,7 +192,7 @@ bool ForestManager::parseKML(const std::string& content)
                             double y = p.lat;
                             double z = p.alt;
 
-                            tr->Transform(1, &x, &y, &z);
+                            OCTTransform(tr, 1, &x, &y, &z);
                             p.X = x;
                             p.Y = y;
                             p.Z = z;
@@ -395,6 +395,7 @@ void Forest::rasteriseCurve(Curve& curve, std::vector<std::vector<bool>>& mask, 
             for (int i = iStart; i <= iEnd; ++i)
             {
                 mask[j][i] = fillValue;
+
             }
         }
     }
@@ -425,16 +426,18 @@ void Forest::createMask()
             Curve& innerCurve = pg.inners[inner];
             rasteriseCurve(innerCurve, mask, gridX0, gridY0, nx, ny, pixelSize, false);
         }
+
     }
 }
 
 void Forest::exportMaskToGeoTIFF(const std::string& filename)
-{
+{    
     int ny = mask.size();
     int nx = mask.empty() ? 0 : mask[0].size();
     if (nx == 0 || ny == 0) return;
 
     GDALDriver* driver = GetGDALDriverManager()->GetDriverByName("GTiff");
+
     if (!driver)
     {
         std::cerr << "GTiff driver not available\n";
@@ -459,19 +462,27 @@ void Forest::exportMaskToGeoTIFF(const std::string& filename)
 
     double geoTransform[6] = { 0 };
     geoTransform[0] = minX;       // top-left X
-    geoTransform[1] = pixelSize;  // pixel width
+    geoTransform[1] = static_cast<double>(pixelSize);  // pixel width
     geoTransform[2] = 0.0;
     geoTransform[3] = maxY;       // top-left Y
     geoTransform[4] = 0.0;
-    geoTransform[5] = -pixelSize; // negative to flip Y
-    ds->SetGeoTransform(geoTransform);
+    geoTransform[5] = static_cast<double>( - pixelSize); // negative to flip Y
 
+    if (ds->SetGeoTransform(geoTransform) != CE_None) {
+        std::cerr << "SetGeoTransform failed\n";
+    }
 
     OGRSpatialReference srs;
-    srs.importFromEPSG(5514); 
+    srs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    if (srs.importFromEPSG(8353) != OGRERR_NONE)
+    {
+        std::cerr << "Failed to import EPSG:8353\n";
+    }
+    srs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     char* wkt = nullptr;
     srs.exportToWkt(&wkt);
-    ds->SetProjection(wkt);
+    if (ds->SetProjection(wkt) != CE_None)
+        std::cerr << "SetProjection failed\n";
     CPLFree(wkt);
 
     GDALRasterBand* band = ds->GetRasterBand(1);
@@ -495,4 +506,5 @@ void Forest::exportMaskToGeoTIFF(const std::string& filename)
 
 
     GDALClose(ds);
+
 }

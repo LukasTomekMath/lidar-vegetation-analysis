@@ -10,6 +10,7 @@
 
 #include "../libs/gdal_include/gdal_priv.h"
 #include "../libs/gdal_include/gdal.h"
+#include "../libs/gdal_include/ogr_api.h"
 
 #include "LASlib/lasreader.hpp"
 #include "LASlib/laswriter.hpp"

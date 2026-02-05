@@ -13,6 +13,9 @@
 #include "libs/gdal_include/gdal_priv.h"
 #include "libs/gdal_include/gdal.h"
 
+#include "libs/gdal_include/gdal_version.h"
+#include "libs/gdal_include/gdal.h"
+
 struct Point {
     double lon, lat, alt;// povodne suradnice
     double X, Y, Z; //transormovane suradnice
