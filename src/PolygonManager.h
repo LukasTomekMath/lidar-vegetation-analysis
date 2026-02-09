@@ -90,6 +90,7 @@ public:
     std::vector<PolygonGroup>& getPolygons()  { return polygons; }
     std::vector<std::string>& getTiles() { return tiles; }
     std::vector<std::vector< bool >>& getMask() { return mask; }
+    const std::vector<std::vector<bool>>& getMask() const { return mask; }
 
     void addPolygon(const PolygonGroup& pg) { polygons.push_back(pg); }
     size_t getPolygonCount() { return polygons.size(); }

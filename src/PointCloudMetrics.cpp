@@ -578,7 +578,7 @@ void DataHandler::exportMetrics(std::string fileName)
 	// fileName += std::string("_h=") + std::to_string(m_areaInfo.desiredPixelSize) + std::string("m");
 
 
-	fileName = "../../../TEST2/"+ fileName+"_"+m_forestName + ".tif";
+	fileName = "../../../pralesy_metriky_5x5/"+ fileName+"_"+m_forestName + ".tif";
 	
 
 	//std::string basePath = "../../../pralesy_metriky/";

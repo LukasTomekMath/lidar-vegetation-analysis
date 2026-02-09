@@ -16,6 +16,7 @@
 #include "libs/gdal_include/gdal.h"
 #include "libs/gdal_include/ogrsf_frmts.h"
 #include "libs/gdal_include/cpl_conv.h"
+#include "libs/gdal_include/ogr_srs_api.h"
 
 // LASTools include
 #include "libs/LAStools_include/LASlib/lasreader.hpp"
@@ -61,6 +62,7 @@ struct RasterData
 	int ny = 0;
 	int nBands = 0;
 	std::vector<std::vector<double>> bands; // [band][y*nx + x]
+	std::vector<double> noDataValues;
 };
 
 //len na zednodusenie prace s metrikami a co mam z nich ratat
@@ -79,6 +81,22 @@ struct FeatureVector
 	std::vector<MetricStats> metrics; 
 };
 
+void exportFeatureVectorCSV(const FeatureVector& fv, const std::string& csvPath)
+{
+	std::ofstream csv(csvPath,std::ios::app);
+	if (!csv.is_open()) {
+		std::cerr << "Cannot open CSV: " << csvPath << "\n";
+		return;
+	}
+
+	csv << fv.forestName;
+	for (auto& m : fv.metrics) {
+		csv << "," << m.mean << "," << m.std << "," << m.min << "," << m.max;
+	}
+	csv << "\n";
+	csv.flush();
+}
+
 
 //citanie tif subboru na spracovanie pomocou masky
 RasterData readGeoTiff(const std::string& filename)
@@ -94,10 +112,16 @@ RasterData readGeoTiff(const std::string& filename)
 	out.nBands = GDALGetRasterCount(ds);
 
 	out.bands.resize(out.nBands);
+	out.noDataValues.resize(out.nBands);
 
-	for (int b = 0; b < out.nBands; ++b)
+	for (int b = 0; b < out.nBands; b++)
 	{
 		GDALRasterBandH band = GDALGetRasterBand(ds, b + 1);
+
+		int hasNoData = 0;
+		double noDataVal = GDALGetRasterNoDataValue(band, &hasNoData);
+		out.noDataValues[b] = hasNoData ? noDataVal : std::numeric_limits<double>::quiet_NaN();
+
 		out.bands[b].resize(out.nx * out.ny);
 
 		GDALRasterIO(band, GF_Read,
@@ -113,13 +137,14 @@ RasterData readGeoTiff(const std::string& filename)
 	return out;
 }
 
+//testovacia funkcia
 void applyMask(RasterData& r, const std::vector<std::vector<bool>>& mask, double noData)
 {
-	for (int y = 0; y < r.ny; ++y)
+	for (int y = 0; y < r.ny; y++)
 	{
-		for (int x = 0; x < r.nx; ++x)
+		for (int x = 0; x < r.nx; x++)
 		{
-			if (!mask[y][x])   // outside forest
+			if (!mask[y][x])   // mimo lesa
 			{
 				int idx = y * r.nx + x;
 				for (int b = 0; b < r.nBands; ++b)
@@ -130,7 +155,7 @@ void applyMask(RasterData& r, const std::vector<std::vector<bool>>& mask, double
 		}
 	}
 }
-
+//testovacia funkcia
 void writeMaskedTif(const std::string& outPath, const RasterData& r, GDALDataset* srcDS, double noData)
 {
 	GDALDriver* driver = GetGDALDriverManager()->GetDriverByName("GTiff");
@@ -144,7 +169,7 @@ void writeMaskedTif(const std::string& outPath, const RasterData& r, GDALDataset
 
 	out->SetProjection(srcDS->GetProjectionRef());
 
-	for (int b = 0; b < r.nBands; ++b)
+	for (int b = 0; b < r.nBands; b++)
 	{
 		GDALRasterBand* band = out->GetRasterBand(b + 1);
 		band->SetNoDataValue(noData);
@@ -155,10 +180,8 @@ void writeMaskedTif(const std::string& outPath, const RasterData& r, GDALDataset
 
 	GDALClose(out);
 }
-
-void debugMaskCheck(const std::string& inTif,
-	const std::string& outTif,
-	const std::vector<std::vector<bool>>& mask)
+//testovacia funkcia
+void debugMaskCheck(const std::string& inTif, const std::string& outTif, const std::vector<std::vector<bool>>& mask)
 {
 	GDALAllRegister();
 
@@ -175,6 +198,75 @@ void debugMaskCheck(const std::string& inTif,
 	GDALClose(src);
 }
 
+MetricStats computeStatsForBand(const std::vector<double>& band, const std::vector<std::vector<bool>>& mask, int nx, int ny,double noData)
+{
+	MetricStats s{};
+
+	double sum = 0.0;
+	double sumSq = 0.0;
+	int count = 0;
+
+	bool first = true;
+
+	for (int y = 0; y < ny; y++)
+	{
+		for (int x = 0; x < nx; x++)
+		{
+			if (!mask[y][x]) continue; //mimo lesa
+
+			int i = y * nx + x;
+			double v = band[i];
+
+			if (!std::isfinite(v) || v == noData|| std::isnan(v)) continue;
+
+			if (first) {
+				s.min = s.max = v;
+				first = false;
+			}
+
+			if (v < s.min) s.min = v;
+			if (v > s.max) s.max = v;
+
+			sum += v;
+			sumSq += v * v;
+			count++;
+		}
+	}
+	s.mean = sum / count;
+	double var=0.0;
+
+	for (int y = 0; y < ny; y++)
+	{
+		for (int x = 0; x < nx; x++)
+		{
+			if (!mask[y][x]) continue;
+
+			int i = y * nx + x;
+			double v = band[i];
+
+			if (!std::isfinite(v) || v == noData || std::isnan(v)) continue;
+
+			var += (v - s.mean) * (v - s.mean);
+		}
+	}
+	var /= count;
+	s.std = std::sqrt(var);
+
+	return s;
+}
+
+FeatureVector computeFeatureVector(const RasterData& raster, const Forest& forest)
+{
+	FeatureVector fv;
+	fv.forestName = forest.getName();
+	fv.metrics.resize(raster.nBands);
+
+	for (int i = 0; i < raster.nBands;i++)
+	{
+		fv.metrics[i] = computeStatsForBand(raster.bands[i],forest.getMask(),raster.nx,raster.ny,raster.noDataValues[i]);
+	}
+	return fv;
+}
 
 
 
@@ -764,8 +856,8 @@ int main_features(int argc, char** argv)
 		forest.findBoundingBox();
 		forest.createMask();
 
-		std::string outFilename = outDir + "/mask_forest_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".tif";
-		forest.exportMaskToGeoTIFF(outFilename);
+		//std::string outFilename = outDir + "/mask_forest_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".tif";
+		//forest.exportMaskToGeoTIFF(outFilename);
 
 	}
 	std::cout << "Masks done" << "\n\n";
@@ -786,6 +878,27 @@ int main_features(int argc, char** argv)
 		}
 	}
 	
+
+	std::string csvFile = "feature_vectors.csv";
+	std::ofstream csv(csvFile, std::ios::trunc);
+
+	//zapisanie headra
+	csv << "ForestName";
+	std::vector<std::string> metricNames = {
+		"Hmax","Hmean","Hmedian","Hp25","Hp75","Hp95","PPR","DAM_z",
+		"BR_below_1","BR_1_2","BR_2_3","BR_above_3","BR_3_4","BR_4_5",
+		"BR_below_5","BR_5_20","BR_above_20","Coeff_var_z","Hkurt",
+		"Hskew","Hstd","Hvar","Shannon"
+	};
+	for (auto& name : metricNames) {
+		csv << "," << name << "_mean"
+			<< "," << name << "_std"
+			<< "," << name << "_min"
+			<< "," << name << "_max";
+	}
+	csv << "\n";
+	csv.flush();
+
 	//iterovanie cez jednotlive subory tif
 	for (const auto& tifPath : files)
 	{
@@ -798,16 +911,18 @@ int main_features(int argc, char** argv)
 		if (!forest) {
 			std::cout << "No mask for forest: " << stem << "\n";
 			continue;
-		}
+		}/*
 		else
 		{
 			std::cout << "Mask found for: " << stem << "\n";
 			debugMaskCheck(tifPath,
 				"../../../masky/TEST_" + stem + ".tif",
 				forest->getMask());
-		}
+		}*/
 
 		//tu bude to pocitanie features
+		FeatureVector fv = computeFeatureVector(raster, *forest);
+		exportFeatureVectorCSV(fv, csvFile);
 	}
 
 
@@ -815,6 +930,9 @@ int main_features(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+	const char* proj_paths[] = { "libs/dlls_to_copy", "./", nullptr };
+	OSRSetPROJSearchPaths(proj_paths);
+
 	//main_all_files(argc, argv);
 	//main_curve(argc, argv);
 	//main_curve_files(argc, argv);
