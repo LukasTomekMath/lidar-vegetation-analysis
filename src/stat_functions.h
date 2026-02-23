@@ -27,4 +27,8 @@ namespace StatFunctions
 
 	double pointsBetween(const std::vector<double>& data, double z1, double z2);
 
+	double median(std::vector<double>& v);
+
+	double MAD(const std::vector<double>& v, double med);
+
 }

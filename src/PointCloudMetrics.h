@@ -146,6 +146,14 @@ private:
 
 	// bool readLasFile(std::string lasFileName);
 
+	void filterPointsMAD();
+
+	void filterPointsHp95();
+
+	void filterPointsHp02();
+
+	void cleanVegetationBelowGround();
+
 	void normalizePoints();
 
 	void redistributePoints();

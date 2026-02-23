@@ -51,7 +51,11 @@ bool DataHandler::performCalculation()
 	m_output.readTime = std::chrono::duration_cast<std::chrono::milliseconds>(reading_end - reading_start).count() / 1000.0;
 
 	auto normalization_start = std::chrono::high_resolution_clock::now();
+	//filterPointsMAD();
+	filterPointsHp02();
+	//cleanVegetationBelowGround();
 	normalizePoints();
+	filterPointsHp95();
 	auto normalization_end = std::chrono::high_resolution_clock::now();
 	m_output.normalizationTime = std::chrono::duration_cast<std::chrono::milliseconds>(normalization_end - normalization_start).count() / 1000.0;
 
@@ -186,6 +190,7 @@ bool DataHandler::readLazFile()
 	return true;
 }
 
+/*
 // ? TODO: toto by sa mozno mohlo pouzit namiesto upravovania `readLazFiles` metody, kedze by to mal but rovnaky kod
 // bool DataHandler::readLasFile(std::string lasFileName)
 // {
@@ -294,6 +299,244 @@ bool DataHandler::readLazFile()
 
 // 	return true;
 // }
+*/
+
+void DataHandler::filterPointsMAD()
+{
+	double C = 15.0;	//nasobok MAD ktorz ude urcovat co je outlier
+
+#pragma omp parallel for
+	for (int i = 0; i < m_meshPixels.size(); i++)
+	{
+		auto& px = m_meshPixels[i];
+
+		// treba dat dokopz vsetky body veg+ground
+		std::vector<double> allZ;
+		allZ.reserve(px.groundPts.zCoords.size() + px.vegetationPts.zCoords.size());
+
+		allZ.insert(allZ.end(), px.groundPts.zCoords.begin(), px.groundPts.zCoords.end());
+
+		allZ.insert(allZ.end(), px.vegetationPts.zCoords.begin(), px.vegetationPts.zCoords.end());
+
+		if (allZ.size() < 3)
+			continue;
+
+		double m = StatFunctions::median(allZ);
+		double mad = StatFunctions::MAD(allZ, m);
+
+		if (mad == 0.0)
+			continue;
+
+		double thresh = C * mad;
+
+		// prefiltrujem zem
+		auto& gz = px.groundPts.zCoords;
+		gz.erase(
+			std::remove_if(gz.begin(), gz.end(),[&](double z) { return std::abs(z - m) > thresh; }),
+			gz.end()
+		);
+		// m a thresh su brane ako referencia, nekopiruju sa
+		// zisti sa, ci je rozdiel medzi vyskou a medianom vacsi ako Cx ten MAD, ak ano, tak sa vrati TRUE
+		// na zaklade toho sa oznaci ten dany element ako "na vymazanie", ale remove_if nevymazava, on len 
+		//reorganizuje tie co su ok dopredu, tie co su na vymazanie dozadu, a vrati iterator na posledny OK elem
+		//vymazanie je potom cez erase od toho co vratilo remove_if po koniec vektora
+		//trocha neintuitivne ale som to nasla ako nejake ustalene "erase remove if" co sa v cpp pouziva
+
+		// prefiltrujem vegetaciu
+		auto& vz = px.vegetationPts.zCoords;
+		vz.erase(
+			std::remove_if(vz.begin(), vz.end(),
+				[&](double z) { return std::abs(z - m) > thresh; }),
+			vz.end()
+		);
+	}
+}
+
+void DataHandler::filterPointsHp95()
+{
+	//toto idem komentovat ako fanatik lebo tieto pixelove veci ma vzdy matu ze co kde je aky index and stuff lol
+
+	int factor = 10;	//velkost "pixela" na ktorom idem ratat, 10x10m
+	double dist = 5.0;	//vzdialenost nad Hp95 nad ktorou budem uz orezavat
+
+	int Wn = m_areaInfo.width_n;	//sirka mriezky ked je pixel 1x1 (v normalizacii a filtrovani)
+	int Hn = m_areaInfo.height_n;
+
+	int W10 = (Wn + factor - 1) / factor;	//zaokruhlenie nahor, je to ze +9, lebo ak by to bolo napr. Wn=211 tak mi treba 22 pixelov, cize (211+9)/10 je ok a ak by to bolo (215+9)/10=22 lebo / proste oreze i think
+	//akoze mohlo by to byt aj cez ceil(), ale toto som niekde nasla, je to vraj rychlejsie (nie ze tu by na tom velmi zalezalo asi na 1 vypocte) ale sa mi to lubilo :p
+	int H10 = (Hn + factor - 1) / factor;
+
+	std::vector<std::vector<double>> z10(W10 * H10); //tu sa budu ukladat tie reorganizovane body
+
+	//reorganizacia bodov do mriezky 10x10m
+	for (int i = 0; i < Hn; i++)
+	{
+		for (int j = 0; j < Wn; j++)
+		{
+			int idx1 = i * Wn + j;	//index origoš pixela na 1x1
+			int I = i / factor;	//indexy noveho vacsieho pixela v 2d mriezke
+			int J = j / factor;
+			int idx10 = I * W10 + J;	//index noveho vacsieho pixela v 1d poli
+
+			auto& vz = m_meshPixels[idx1].vegetationPts.zCoords;	//len vegetaciu beriem
+			if (!vz.empty())
+				z10[idx10].insert(z10[idx10].end(), vz.begin(), vz.end()); //vkladam pixely do z10 od z10[idx10].end(), teda vpisuju sa na koniec cohokolvek co tam uz je napisane
+		}
+	}
+
+	std::vector<double> hp95(z10.size(), NAN);	//na zapisovanie vsetkych 95 percentilov
+
+	for (int i = 0; i < z10.size(); i++)	
+	{
+		auto& v = z10[i];	//ref na vektor konkretneho 10x10 pixela
+		if (v.size() < 10)  //akoze asi sa nestane ze na 10x10 bude menej ako 10 bodov but you never know
+			continue;
+
+		size_t k = static_cast<size_t>(0.95 * (v.size() - 1));	//index bodu ktory je "ten" na 95p
+		std::nth_element(v.begin(), v.begin() + k, v.end());	//toto je rychlejsie jak sort a proste len potrebujem hodnotu na tom k-tom indexe
+		hp95[i] = v[k];	//finalna hodnota Hp95 na danom 10x10 pix
+	}
+
+	//samotna filtracia
+	for (int i = 0; i < Hn; i++)
+	{
+		for (int j = 0; j < Wn; j++)
+		{
+			int idx1 = i * Wn + j;
+			int I = i / factor;
+			int J = j / factor;
+			int idx10 = I * W10 + J;
+
+			double ref = hp95[idx10];	//referencna hodnota pre dany "pixel"
+			if (!std::isfinite(ref))	//ak by napr zostal tam NaN z inicializacie tak skip
+				continue;
+
+			auto& vz = m_meshPixels[idx1].vegetationPts.zCoords;
+
+			vz.erase(
+				std::remove_if(vz.begin(), vz.end(),
+					[&](double z) { return z > ref + dist; }),	//ak je z bodu vacsie ako ref+dist tak sa zmaze
+				vz.end()
+			);
+		}
+	}
+
+}
+
+void DataHandler::filterPointsHp02()
+{
+	int factor = 2;	
+	double dist = 2.0;	
+
+	int Wn = m_areaInfo.width_n;	
+	int Hn = m_areaInfo.height_n;
+
+	int Wnew = (Wn + factor - 1) / factor;	
+	int Hnew = (Hn + factor - 1) / factor;
+
+	std::vector<std::vector<double>> z_vals(Wnew * Hnew);
+
+	for (int i = 0; i < Hn; i++) 
+	{
+		for (int j = 0; j < Wn; j++) 
+		{
+			int idx1 = i * Wn + j;	
+			int I = i / factor;
+			int J = j / factor;
+			int idxnew = I * Wnew + J;
+
+			auto& vz = m_meshPixels[idx1].vegetationPts.zCoords;
+			auto& gz = m_meshPixels[idx1].groundPts.zCoords;
+			
+			if (!vz.empty())
+				z_vals[idxnew].insert(z_vals[idxnew].end(), vz.begin(), vz.end());
+			if (!gz.empty())
+				z_vals[idxnew].insert(z_vals[idxnew].end(), gz.begin(), gz.end());
+		}
+	}
+
+	std::vector<double> hp02(z_vals.size(), NAN);
+	for (int i = 0; i < z_vals.size(); i++) {
+		auto& v = z_vals[i];
+		if (v.size() < 3) continue;
+
+		size_t k = static_cast<size_t>(0.02 * (v.size() - 1));
+		if (k == 0) k = 2;
+
+		std::nth_element(v.begin(), v.begin() + k, v.end());
+		hp02[i] = v[k];
+	}
+
+
+	for (int i = 0; i < Hn; i++) 
+	{
+		for (int j = 0; j < Wn; j++) 
+		{
+			int idx1 = i * Wn + j;
+			int I = i / factor;
+			int J = j / factor;
+			int idxnew = I * Wnew + J;
+
+			double ref = hp02[idxnew];
+			if (!std::isfinite(ref)) continue;
+
+			auto& vz = m_meshPixels[idx1].vegetationPts.zCoords;
+			auto& gz = m_meshPixels[idx1].groundPts.zCoords;
+
+			vz.erase(std::remove_if(vz.begin(), vz.end(), [&](double z) { return z < (ref - dist); }), vz.end());
+			gz.erase(std::remove_if(gz.begin(), gz.end(), [&](double z) { return z < (ref - dist); }), gz.end());
+		}
+	}
+}
+
+void DataHandler::cleanVegetationBelowGround()
+{
+	int factor = 2;
+	int Wn = m_areaInfo.width_n;
+	int Hn = m_areaInfo.height_n;
+	int Wf = (Wn + factor - 1) / factor;
+	int Hf = (Hn + factor - 1) / factor;
+
+	std::vector<double> groundFloor(Wf * Hf, DBL_MAX);
+
+	for (int i = 0; i < Hn; i++) 
+	{
+		for (int j = 0; j < Wn; j++) 
+		{
+			int idx1 = i * Wn + j;	
+			int I = i / factor;	
+			int J = j / factor;
+			int idxF = I * Wf + J;
+
+			auto& gz = m_meshPixels[idx1].groundPts.zCoords;
+			if (gz.empty()) continue;
+
+			double localMin = *std::min_element(gz.begin(), gz.end());//minimum na tom 1x1
+			if (localMin < groundFloor[idxF]) 
+			{
+				groundFloor[idxF] = localMin;
+			}
+		}
+	}
+
+	for (int i = 0; i < Hn; i++) 
+	{
+		for (int j = 0; j < Wn; j++) 
+		{
+			int idx1 = i * Wn + j;
+			int I = i / factor;
+			int J = j / factor;
+			int idxF = I * Wf + J;
+
+			if (groundFloor[idxF]==DBL_MAX) continue;
+
+			auto& vz = m_meshPixels[idx1].vegetationPts.zCoords;
+			vz.erase(std::remove_if(vz.begin(), vz.end(), [&](double z) 
+				{return z < groundFloor[idxF];}),	//ak je vegetation point pod min zeme tak sa vymaze
+				vz.end());
+		}
+	}
+}
 
 void DataHandler::normalizePoints()
 {
@@ -577,8 +820,16 @@ void DataHandler::exportMetrics(std::string fileName)
 	// fileName = std::string(".\\") + fileName.append(".tif");
 	// fileName += std::string("_h=") + std::to_string(m_areaInfo.desiredPixelSize) + std::string("m");
 
+	std::string basename = "../../../filtrovane_metriky_5x5/";
 
-	fileName = "../../../pralesy_metriky_5x5/"+ fileName+"_"+m_forestName + ".tif";
+	if (m_forestName == "")
+	{
+		fileName = basename + fileName +".tif";
+	}
+	else
+	{
+		fileName = basename + fileName + "_" + m_forestName + ".tif";
+	}
 	
 
 	//std::string basePath = "../../../pralesy_metriky/";

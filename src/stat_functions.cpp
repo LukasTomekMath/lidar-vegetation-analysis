@@ -157,3 +157,29 @@ double StatFunctions::pointsBetween(const std::vector<double>& data, double z1, 
 
     return static_cast<double>(pts);
 }
+
+double StatFunctions::median(std::vector<double>& v)
+{
+    size_t n = v.size() / 2;
+    std::nth_element(v.begin(), v.begin() + n, v.end());
+    double med = v[n];
+
+    if (v.size() % 2 == 0)
+    {
+        std::nth_element(v.begin(), v.begin() + n - 1, v.end());
+        med = 0.5 * (med + v[n - 1]);
+    }
+    return med;
+}
+
+double StatFunctions::MAD(const std::vector<double>& v, double med)
+{
+    std::vector<double> devs;
+    devs.reserve(v.size());
+
+    for (double z : v)
+        devs.push_back(std::abs(z - med));
+
+    return median(devs);
+}
+

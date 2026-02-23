@@ -22,6 +22,7 @@
 #include "libs/LAStools_include/LASlib/lasreader.hpp"
 #include "libs/LAStools_include/LASlib/laswriter.hpp"
 
+
 // Data handler include
 #include "PointCloudMetrics.h"
 #include "PolygonManager.h"
@@ -269,13 +270,16 @@ FeatureVector computeFeatureVector(const RasterData& raster, const Forest& fores
 }
 
 
-
-//povodne spracovanie vsetkych suborov (bez pralesov)
+//povodne spracovanie vsetkych suborov (bez pralesov) + filtracia
 int main_all_files(int argc, char** argv)
 {
 	int nprocs = 6;
 	int files_done = 0;
 	omp_set_num_threads(nprocs);
+
+	int pixelsize = 5;
+
+	std::cout << "Use case: Load all laz files in a specified directory and calculate tifs." << std::endl;
 
 	std::ofstream csv("processing_stats.csv", std::ios::trunc);
 	csv << "Tile,File_MB,PointsInMesh,ReadTime_s,NormalizationTime_s,RedistributionTime_s,MetricsTime_s,ExportTime_s,DeallocationTime_s,OverallTime_s\n";
@@ -355,7 +359,7 @@ int main_all_files(int argc, char** argv)
 			std::cout << startMsg.str();
 		}
 
-		handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY, upperLeftX+2000, upperLeftY-2000,10);
+		handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY, upperLeftX+2000, upperLeftY-2000,pixelsize);
 
 		//#pragma omp critical
 		//		std::cout << "area name: " << handler->areaName() << std::endl;
@@ -455,7 +459,7 @@ int main_curve(int argc, char** argv)
 	std::cout << "Finished reading " << fileCount << " KML files.\n";
 	std::cout << "Total forests loaded: " << forests.size() << "\n\n";
 
-	// Output file
+	//output file
 	std::ofstream file("pralesy.txt");
 	if (!file.is_open())
 	{
@@ -592,7 +596,7 @@ int main_curve(int argc, char** argv)
 
 }
 
-//spracovanie vsetkych suborov S krivkami pralesov
+//spracovanie vsetkych suborov S krivkami pralesov + filtracia
 int main_curve_files(int argc, char** argv)
 {
 	int nprocs = 10;
@@ -604,6 +608,8 @@ int main_curve_files(int argc, char** argv)
 		std::cout << "Input is: (kml directory) (laz directory)\n";
 		return -1;
 	}
+
+	std::cout << "Use case: Load laz files in a specified directory corespondin to kml files from a specified directory and calculate tifs." << std::endl;
 	std::string kmlDir = argv[1];
 	std::string lazDir = argv[2];
 
@@ -685,6 +691,23 @@ int main_curve_files(int argc, char** argv)
 
 			if (fs::exists(fullPath))
 			{
+
+				std::string lazFileName = files[j];
+				std::string areaName = std::regex_replace(lazFileName, std::regex("(\\.laz)"), "");
+				std::string forestName = std::regex_replace(forest.getName(), std::regex(" "), "_");
+
+				std::string outputPath = "../../../filtrovane_metriky_5x5/" + areaName + "_" + forestName + ".tif";
+
+				if (fs::exists(outputPath)) {
+#pragma omp critical
+					{
+						files_done++;
+						processedBytes += fs::file_size(fullPath);
+						std::cout << "[SKIPPING] " << outputPath << " already exists.\n";
+					}
+					continue;
+				}
+
 				//co sa ma spravit ked sa konkretny subor najde- vypocita sa co sa ma
 				auto file_start = std::chrono::high_resolution_clock::now(); //celkovy cas
 
@@ -695,7 +718,7 @@ int main_curve_files(int argc, char** argv)
 				double lowerRightY = -1.0;
 
 				DataHandler* handler = new DataHandler; 
-				std::string lazFileName = files[j];
+				//std::string lazFileName = files[j];
 				handler->setAreaName(std::regex_replace(lazFileName, std::regex("(\\.laz)"), "")); 
 				handler->setForestName(std::regex_replace(forest.getName(), std::regex(" "), "_"));
 
@@ -721,7 +744,7 @@ int main_curve_files(int argc, char** argv)
 
 
 				std::ostringstream startMsg; 
-				startMsg << i + 1 << "/" << num_files << " Processing file '" << lazFileName << "' for"<< forest.getName()<<"\n";
+				startMsg << i + 1 << "/" << num_files << " Processing file '" << lazFileName << "' for "<< forest.getName()<<"\n";
 #pragma omp critical
 				{
 					std::cout << startMsg.str();
@@ -800,15 +823,13 @@ int main_curve_files(int argc, char** argv)
 
 }
 
-//nacitanie kriviek, maska, TO DO:feature vektory
+//nacitanie kriviek, maska, pocitanie feature vektorov
 int main_features(int argc, char** argv)
 {
 	int nprocs = 10;
 	int files_done = 0;
 	omp_set_num_threads(nprocs);
-	std::cout << "Program started\n";
 	GDALAllRegister();
-	std::cout << "GDAL version: " << GDALVersionInfo("RELEASE_NAME") << "\n";
 
 	if (argc != 3)
 	{
@@ -818,6 +839,7 @@ int main_features(int argc, char** argv)
 	std::string kmlDir = argv[1];
 	std::string tifDir = argv[2];
 	std::string outDir = "../../../masky";
+	std::cout << "Use case: Load tif files in a specified directory coresponding to kml files from a specified directory and calculate feature vectors." << std::endl;
 
 
 	if (!fs::exists(kmlDir))
@@ -928,13 +950,149 @@ int main_features(int argc, char** argv)
 
 }
 
+//orezanie laz suborov ia na casti v bounding boxoch a ulozenie zvlast
+int main_crop_laz(int argc, char** argv)
+{
+	int nprocs = 6;
+	omp_set_num_threads(nprocs);
+
+	if (argc != 3)
+	{
+		std::cout << "Input is: (kml directory) (laz directory)\n";
+		return -1;
+	}
+
+	std::cout << "Use case: Crop laz files according to the boundin boxes defined by forests in kml files." << std::endl;
+
+
+	std::string kmlDir = argv[1];
+	std::string lazDir = argv[2];
+
+	if (!fs::exists(kmlDir))
+	{
+		std::cerr << "Directory does not exist: " << kmlDir << "\n";
+		return -1;
+	}
+
+	ForestManager forestManager;
+	int fileCount = 0;
+
+	for (auto& entry : fs::directory_iterator(kmlDir))
+	{
+		if (entry.is_regular_file() && entry.path().extension() == ".kml")
+		{
+			std::string filename = entry.path().string();
+			std::cout << "Loading KML: " << filename << std::endl;
+
+			forestManager.loadFromKML(filename);
+			fileCount++;
+		}
+	}
+
+	auto& forests = forestManager.getForests();
+
+	std::cout << "Finished reading " << fileCount << " KML files.\n";
+	std::cout << "Total forests loaded: " << forests.size() << "\n\n";
+
+	int tile_counter = 0;
+
+#pragma omp parallel for schedule(dynamic)
+	for (int i = 0; i < forests.size(); i++)
+	{
+		Forest& forest = forests[i];
+
+		//setup na konkretne subory
+		forest.calculateForestArea();
+		forest.findBoundingBox();
+		forest.findTiles();
+
+		std::vector<std::string>& subory = forest.getTiles();
+		tile_counter += subory.size();
+
+		auto& polygons = forest.getPolygons();
+
+		fs::path outputDir = "D:\\blahova\\pointclouds_forests";
+
+
+		for (int j = 0; j < subory.size(); j++)
+		{
+			fs::path fullPath = fs::path(lazDir) / subory[j];
+			if (fs::exists(fullPath))
+			{
+#pragma omp critical
+				{
+					std::cout << "Processing forest: " << forest.getName() << " and file "<<subory[j] << std::endl;
+				}
+
+				fs::path outputDir = "D:\\blahova\\pointclouds_forests";
+				if (!fs::exists(outputDir)) {
+					fs::create_directories(outputDir);
+				}
+
+				std::string originalName = fullPath.stem().string();
+				std::string forestName = forest.getName();
+				fs::path outputPath = outputDir / (originalName + "_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".laz");
+
+				std::string lasExe = "D:\\blahova\\git\\libs\\las2las64.exe";
+
+				double x_min = std::min(forest.getMinX(), forest.getMaxX());
+				double x_max = std::max(forest.getMinX(), forest.getMaxX());
+				double y_min = std::min(forest.getMinY(), forest.getMaxY());
+				double y_max = std::max(forest.getMinY(), forest.getMaxY());
+
+				std::stringstream cmd;
+				cmd << "\" \"" << lasExe << "\""
+					<< " -i \"" << fullPath.string() << "\""
+					<< " -keep_xy "
+					<< std::fixed << std::setprecision(3)
+					<< x_min << " " << y_min << " " << x_max << " " << y_max
+					<< " -o \"" << outputPath.string() << "\" \"";
+
+				std::string finalCmd = cmd.str();
+
+				//std::cout << "DEBUG COMMAND: " << finalCmd << std::endl;
+
+				int result = std::system(finalCmd.c_str());
+
+				if (result == 0) 
+				{
+#pragma omp critical
+					{
+						std::cout << "Successfully saved to: " << outputPath.string() << "\n\n";
+					}
+				}
+				else 
+				{
+#pragma omp critical
+					{
+						std::cerr << "Error: las2las64 returned code " << result << "\n\n";
+					}
+				}
+
+			}
+
+			else
+			{
+				std::cout << forest.getName() << "\n";
+				std::cout << "[MISSING] " << subory[j] << "\n";
+			}
+		}
+	}
+
+}
+
 int main(int argc, char** argv)
 {
 	const char* proj_paths[] = { "libs/dlls_to_copy", "./", nullptr };
 	OSRSetPROJSearchPaths(proj_paths);
 
 	//main_all_files(argc, argv);
+	
 	//main_curve(argc, argv);
-	//main_curve_files(argc, argv);
-	main_features(argc, argv);
+
+	main_curve_files(argc, argv);
+
+	//main_features(argc, argv);
+
+	//main_crop_laz(argc, argv);
 }
