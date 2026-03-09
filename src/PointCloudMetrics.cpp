@@ -820,7 +820,11 @@ void DataHandler::exportMetrics(std::string fileName)
 	// fileName = std::string(".\\") + fileName.append(".tif");
 	// fileName += std::string("_h=") + std::to_string(m_areaInfo.desiredPixelSize) + std::string("m");
 
-	std::string basename = "../../../filtrovane_metriky_5x5/";
+	std::string basename = "../../../cele_slovensko/";
+
+	if (!std::filesystem::exists(basename)) {
+		std::filesystem::create_directories(basename);
+	}
 
 	if (m_forestName == "")
 	{

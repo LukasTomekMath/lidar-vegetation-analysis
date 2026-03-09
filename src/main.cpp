@@ -277,9 +277,11 @@ int main_all_files(int argc, char** argv)
 	int files_done = 0;
 	omp_set_num_threads(nprocs);
 
-	int pixelsize = 5;
+	int pixelsize = 10;
 
 	std::cout << "Use case: Load all laz files in a specified directory and calculate tifs." << std::endl;
+	std::cout << "Pixel size is set to: "<<pixelsize << std::endl;
+	std::cout << "Number of threads: " << nprocs << std::endl;
 
 	std::ofstream csv("processing_stats.csv", std::ios::trunc);
 	csv << "Tile,File_MB,PointsInMesh,ReadTime_s,NormalizationTime_s,RedistributionTime_s,MetricsTime_s,ExportTime_s,DeallocationTime_s,OverallTime_s\n";
@@ -441,6 +443,7 @@ int main_curve(int argc, char** argv)
 
 	ForestManager forestManager;
 	int fileCount = 0;
+	GDALAllRegister();
 
 	for (auto& entry : fs::directory_iterator(kmlDir))
 	{
@@ -449,7 +452,8 @@ int main_curve(int argc, char** argv)
 			std::string filename = entry.path().string();
 			std::cout << "Loading KML: " << filename << std::endl;
 
-			forestManager.loadFromKML(filename);
+			//forestManager.loadFromKML(filename);
+			forestManager.parseKML_GDAL(filename);
 			fileCount++;
 		}
 	}
@@ -639,7 +643,8 @@ int main_curve_files(int argc, char** argv)
 			std::string filename = entry.path().string();
 			std::cout << "Loading KML: " << filename << std::endl;
 
-			forestManager.loadFromKML(filename);
+			//forestManager.loadFromKML(filename);
+			forestManager.parseKML_GDAL(filename);
 			fileCount++;
 		}
 	}
@@ -694,7 +699,8 @@ int main_curve_files(int argc, char** argv)
 
 				std::string lazFileName = files[j];
 				std::string areaName = std::regex_replace(lazFileName, std::regex("(\\.laz)"), "");
-				std::string forestName = std::regex_replace(forest.getName(), std::regex(" "), "_");
+				//std::string forestName = std::regex_replace(forest.getName(), std::regex(" "), "_");
+				std::string forestName = forest.getName();
 
 				std::string outputPath = "../../../filtrovane_metriky_5x5/" + areaName + "_" + forestName + ".tif";
 
@@ -720,7 +726,7 @@ int main_curve_files(int argc, char** argv)
 				DataHandler* handler = new DataHandler; 
 				//std::string lazFileName = files[j];
 				handler->setAreaName(std::regex_replace(lazFileName, std::regex("(\\.laz)"), "")); 
-				handler->setForestName(std::regex_replace(forest.getName(), std::regex(" "), "_"));
+				handler->setForestName(forest.getName());
 
 				splitString(handler->areaName(), fileNameParts); 
 
@@ -859,7 +865,8 @@ int main_features(int argc, char** argv)
 			std::string filename = entry.path().string();
 			std::cout << "Loading KML: " << filename << std::endl;
 
-			forestManager.loadFromKML(filename);
+			//forestManager.loadFromKML(filename);
+			forestManager.parseKML_GDAL(filename);
 			fileCount++;
 		}
 	}
@@ -879,7 +886,8 @@ int main_features(int argc, char** argv)
 		forest.createMask();
 
 		//std::string outFilename = outDir + "/mask_forest_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".tif";
-		//forest.exportMaskToGeoTIFF(outFilename);
+		std::string outFilename = outDir + "/mask_forest_" + forest.getName() + ".tif";
+		forest.exportMaskToGeoTIFF(outFilename);
 
 	}
 	std::cout << "Masks done" << "\n\n";
@@ -984,7 +992,8 @@ int main_crop_laz(int argc, char** argv)
 			std::string filename = entry.path().string();
 			std::cout << "Loading KML: " << filename << std::endl;
 
-			forestManager.loadFromKML(filename);
+			//forestManager.loadFromKML(filename);
+			forestManager.parseKML_GDAL(filename);
 			fileCount++;
 		}
 	}
@@ -1031,7 +1040,8 @@ int main_crop_laz(int argc, char** argv)
 
 				std::string originalName = fullPath.stem().string();
 				std::string forestName = forest.getName();
-				fs::path outputPath = outputDir / (originalName + "_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".laz");
+				//fs::path outputPath = outputDir / (originalName + "_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".laz");
+				fs::path outputPath = outputDir / (originalName + "_" + forest.getName());
 
 				std::string lasExe = "D:\\blahova\\git\\libs\\las2las64.exe";
 
@@ -1086,11 +1096,11 @@ int main(int argc, char** argv)
 	const char* proj_paths[] = { "libs/dlls_to_copy", "./", nullptr };
 	OSRSetPROJSearchPaths(proj_paths);
 
-	//main_all_files(argc, argv);
+	main_all_files(argc, argv);
 	
 	//main_curve(argc, argv);
 
-	main_curve_files(argc, argv);
+	//main_curve_files(argc, argv);
 
 	//main_features(argc, argv);
 

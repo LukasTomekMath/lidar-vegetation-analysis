@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <regex>
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -12,6 +13,7 @@
 #include "libs/gdal_include/gdal.h"
 #include "libs/gdal_include/gdal_priv.h"
 #include "libs/gdal_include/gdal.h"
+#include "libs/gdal_include/ogrsf_frmts.h"
 
 #include "libs/gdal_include/gdal_version.h"
 #include "libs/gdal_include/gdal.h"
@@ -70,7 +72,7 @@ private:
     //ratanie feature vektora podla masky-min,max,priemer, std
 
     //padding specs ale aj definicia velkosti pixela do pocitania. teray je to tu, ale teoreickz to moze bz v maine v pripade ze by royne lesy mali mat rozne velkosti i guess
-    int pixelSize = 5; 
+    int pixelSize = 2; 
     int padding = 2;
 
     std::vector<std::string> tiles;
@@ -113,11 +115,13 @@ class ForestManager {
 private:
 	std::vector<Forest> forests;
 	bool parseKML(const std::string& content);
+    void processPolygon(OGRGeometry* geom,Forest& forest,OGRCoordinateTransformation* tr);
 
 public:
     ForestManager() {};
     std::vector<Forest>& getForests() { return forests; }
 	bool loadFromKML(const std::string& filename);
+    bool parseKML_GDAL(const std::string& filename);
     Forest* getForestByFileName(const std::string& name);
 };
 
