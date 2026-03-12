@@ -273,7 +273,7 @@ FeatureVector computeFeatureVector(const RasterData& raster, const Forest& fores
 //povodne spracovanie vsetkych suborov (bez pralesov) + filtracia
 int main_all_files(int argc, char** argv)
 {
-	int nprocs = 6;
+	int nprocs = 10;
 	int files_done = 0;
 	omp_set_num_threads(nprocs);
 
@@ -285,6 +285,7 @@ int main_all_files(int argc, char** argv)
 
 	std::ofstream csv("processing_stats.csv", std::ios::trunc);
 	csv << "Tile,File_MB,PointsInMesh,ReadTime_s,NormalizationTime_s,RedistributionTime_s,MetricsTime_s,ExportTime_s,DeallocationTime_s,OverallTime_s\n";
+	csv.flush();
 
 	if (argc != 2)
 	{
@@ -355,10 +356,10 @@ int main_all_files(int argc, char** argv)
 		upperLeftY = std::stod(fileNameParts[2]) + 2000.0;
 
 		std::ostringstream startMsg;
-		startMsg << i + 1 << "/" << files.size() << " Processing file '" << lazFileName << "'\n";
+		startMsg << i + 1 << "/" << files.size() << " Processing file '" << lazFileName << "'\n" ;
 #pragma omp critical
 		{
-			std::cout << startMsg.str();
+			std::cout << startMsg.str() << std::flush;
 		}
 
 		handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY, upperLeftX+2000, upperLeftY-2000,pixelsize);
@@ -411,12 +412,13 @@ int main_all_files(int argc, char** argv)
 #pragma omp critical
 		{
 			csv << local_csv.str();
+			csv.flush();
 			std::cout << "\nDone file: " << lazFileName << "\n"
 				<< "Progress: " << local_done << "/" << files.size()
 				<< " (" << local_processedBytes / (1024.0 * 1024.0) << "MB / "
 				<< totalBytes / (1024.0 * 1024.0) << "MB)\n"
 				<< "Elapsed time: " << formatTime(progressTime) << "\n"
-				<< "Estimated time left: " << formatTime(estimatedTimeLeft) << "\n\n";
+				<< "Estimated time left: " << formatTime(estimatedTimeLeft) << "\n\n" << std::flush;;
 		}
 
 		fileNameParts.clear();
