@@ -12,6 +12,7 @@ namespace StatFunctions
 	double mean(const std::vector<double>& data);
 
 	double percentile(std::vector<double> data, double p);
+	double percentile_sorted(const std::vector<double>& data, double p);
 
 	double kurtosis(const std::vector<double>& data, const double mean, bool flag = true);
 

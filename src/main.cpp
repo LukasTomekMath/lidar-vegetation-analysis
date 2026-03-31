@@ -64,6 +64,10 @@ struct RasterData
 	int nBands = 0;
 	std::vector<std::vector<double>> bands; // [band][y*nx + x]
 	std::vector<double> noDataValues;
+
+	double xMin = 0.0;     //vlavo hore
+	double yMax = 0.0;     //vlavo hore
+	double pixelSize = 0.0;
 };
 
 //len na zednodusenie prace s metrikami a co mam z nich ratat
@@ -79,6 +83,8 @@ struct MetricStats
 struct FeatureVector
 {
 	std::string forestName;
+	std::string segment;      
+	std::string kodPrales;
 	std::vector<MetricStats> metrics; 
 };
 
@@ -90,7 +96,7 @@ void exportFeatureVectorCSV(const FeatureVector& fv, const std::string& csvPath)
 		return;
 	}
 
-	csv << fv.forestName;
+	csv << fv.forestName << "," << fv.segment << "," << fv.kodPrales;
 	for (auto& m : fv.metrics) {
 		csv << "," << m.mean << "," << m.std << "," << m.min << "," << m.max;
 	}
@@ -112,8 +118,16 @@ RasterData readGeoTiff(const std::string& filename)
 	out.ny = GDALGetRasterYSize(ds);
 	out.nBands = GDALGetRasterCount(ds);
 
+	double adfGeoTransform[6];
+	if (ds->GetGeoTransform(adfGeoTransform) == CE_None) {
+		out.xMin = adfGeoTransform[0]; 
+		out.yMax = adfGeoTransform[3]; 
+		out.pixelSize = adfGeoTransform[1]; 
+	}
+
 	out.bands.resize(out.nBands);
 	out.noDataValues.resize(out.nBands);
+
 
 	for (int b = 0; b < out.nBands; b++)
 	{
@@ -121,6 +135,7 @@ RasterData readGeoTiff(const std::string& filename)
 
 		int hasNoData = 0;
 		double noDataVal = GDALGetRasterNoDataValue(band, &hasNoData);
+
 		out.noDataValues[b] = hasNoData ? noDataVal : std::numeric_limits<double>::quiet_NaN();
 
 		out.bands[b].resize(out.nx * out.ny);
@@ -199,72 +214,79 @@ void debugMaskCheck(const std::string& inTif, const std::string& outTif, const s
 	GDALClose(src);
 }
 
-MetricStats computeStatsForBand(const std::vector<double>& band, const std::vector<std::vector<bool>>& mask, int nx, int ny,double noData)
+MetricStats computeStatsForBand(const std::vector<double>& band, Forest& forest, const RasterData& raster, int bandIdx)
 {
 	MetricStats s{};
 
+	double noData = raster.noDataValues[bandIdx];
+	const auto& mask = forest.getMask();
+
+	int maskH = mask.size();
+	if (maskH == 0) return s;
+	int maskW = mask[0].size();
+
+	double fMinX = forest.getMinX();
+	double fMaxY = forest.getMaxY();
+
+
 	double sum = 0.0;
-	double sumSq = 0.0;
 	int count = 0;
+	std::vector<double> values;
 
-	bool first = true;
-
-	for (int y = 0; y < ny; y++)
+	for (int my = 0; my < maskH; my++) 
 	{
-		for (int x = 0; x < nx; x++)
+		for (int mx = 0; mx < maskW; mx++) 
 		{
-			if (!mask[y][x]) continue; //mimo lesa
+			if (!mask[my][mx]) continue; //mimo maskz
 
-			int i = y * nx + x;
-			double v = band[i];
+			//prepocet na svetove suradnice resp metre
+			double worldX = fMinX + mx * raster.pixelSize;
+			double worldY = fMaxY - my * raster.pixelSize;
 
-			if (!std::isfinite(v) || v == noData|| std::isnan(v)) continue;
+			//prepocet na suradnice v rastri, teda ktorz pixel v ti to je
+			int rx = std::round((worldX - raster.xMin) / raster.pixelSize);
+			int ry = std::round((raster.yMax - worldY) / raster.pixelSize);
 
-			if (first) {
-				s.min = s.max = v;
-				first = false;
-			}
+			//ci to ahodou nevzletelo von
+			if (rx < 0 || rx >= raster.nx || ry < 0 || ry >= raster.ny) continue;
 
+			double v = band[ry * raster.nx + rx];
+
+			if (!std::isfinite(v) || v == noData) continue;
+
+			if (count == 0) { s.min = s.max = v; }
 			if (v < s.min) s.min = v;
 			if (v > s.max) s.max = v;
 
 			sum += v;
-			sumSq += v * v;
+			values.push_back(v); 
 			count++;
 		}
 	}
-	s.mean = sum / count;
-	double var=0.0;
 
-	for (int y = 0; y < ny; y++)
-	{
-		for (int x = 0; x < nx; x++)
-		{
-			if (!mask[y][x]) continue;
-
-			int i = y * nx + x;
-			double v = band[i];
-
-			if (!std::isfinite(v) || v == noData || std::isnan(v)) continue;
-
+	if (count > 0) {
+		s.mean = sum / count;
+		double var = 0.0;
+		for (double v : values) {
 			var += (v - s.mean) * (v - s.mean);
 		}
+		s.std = std::sqrt(var / count);
 	}
-	var /= count;
-	s.std = std::sqrt(var);
 
 	return s;
 }
 
-FeatureVector computeFeatureVector(const RasterData& raster, const Forest& forest)
+FeatureVector computeFeatureVector(const RasterData& raster, Forest& forest)
 {
 	FeatureVector fv;
 	fv.forestName = forest.getName();
+	fv.segment = forest.getSegment();
+	fv.kodPrales = forest.getKodPrales();
 	fv.metrics.resize(raster.nBands);
 
 	for (int i = 0; i < raster.nBands;i++)
 	{
-		fv.metrics[i] = computeStatsForBand(raster.bands[i],forest.getMask(),raster.nx,raster.ny,raster.noDataValues[i]);
+		fv.metrics[i] = computeStatsForBand(raster.bands[i],forest,raster,i);
 	}
 	return fv;
 }
@@ -273,7 +295,7 @@ FeatureVector computeFeatureVector(const RasterData& raster, const Forest& fores
 //povodne spracovanie vsetkych suborov (bez pralesov) + filtracia
 int main_all_files(int argc, char** argv)
 {
-	int nprocs = 10;
+	int nprocs = 5;
 	int files_done = 0;
 	omp_set_num_threads(nprocs);
 
@@ -499,8 +521,10 @@ int main_curve(int argc, char** argv)
 
 		file << "=== Forest #" << i << " ===\n";
 		file << "Name: " << forest.getName() << "\n";
+		file << "Segment: " << forest.getSegment() << "\n";
+		file << "Kod prales: " << forest.getKodPrales() << "\n";
 		file << std::fixed << std::setprecision(6);
-		file << "Hectares: " << forest.getForestArea()/10000.0 << "\n";
+		file << "Hectares: " << forest.getForestArea() / 10000.0 << "\n";
 		file << "Polygon groups: " << polygons.size() << "\n\n";
 
 		for (size_t j = 0; j < polygons.size(); ++j)
@@ -587,8 +611,8 @@ int main_curve(int argc, char** argv)
 			}
 			else
 			{
-				std::cout << forest.getName() << "\n";
-				std::cout << "[MISSING] " << files[j] << "\n";
+				//std::cout << forest.getName() << "\n";
+				//std::cout << "[MISSING] " << files[j] << "\n";
 				missing++;
 			}
 		}
@@ -605,9 +629,11 @@ int main_curve(int argc, char** argv)
 //spracovanie vsetkych suborov S krivkami pralesov + filtracia
 int main_curve_files(int argc, char** argv)
 {
-	int nprocs = 10;
+	int nprocs = 6;
 	int files_done = 0;
 	omp_set_num_threads(nprocs);
+
+	GDALAllRegister();
 
 	if (argc != 3)
 	{
@@ -679,7 +705,6 @@ int main_curve_files(int argc, char** argv)
 	//lesy su nacitane, teraz by sa malo vsetko citat, cize cela laz sekcia kodu
 
 	auto overall_start = std::chrono::high_resolution_clock::now();
-	GDALAllRegister();
 	OGRRegisterAll();
 
 	const int chunk = 5;
@@ -704,17 +729,17 @@ int main_curve_files(int argc, char** argv)
 				//std::string forestName = std::regex_replace(forest.getName(), std::regex(" "), "_");
 				std::string forestName = forest.getName();
 
-				std::string outputPath = "../../../filtrovane_metriky_5x5/" + areaName + "_" + forestName + ".tif";
-
-				if (fs::exists(outputPath)) {
-#pragma omp critical
-					{
-						files_done++;
-						processedBytes += fs::file_size(fullPath);
-						std::cout << "[SKIPPING] " << outputPath << " already exists.\n";
-					}
-					continue;
-				}
+//				std::string outputPath = "../../../filtrovane_metriky_5x5/" + areaName + "_" + forestName + ".tif";
+//
+//				if (fs::exists(outputPath)) {
+//#pragma omp critical
+//					{
+//						files_done++;
+//						processedBytes += fs::file_size(fullPath);
+//						std::cout << "[SKIPPING] " << outputPath << " already exists.\n";
+//					}
+//					continue;
+//				}
 
 				//co sa ma spravit ked sa konkretny subor najde- vypocita sa co sa ma
 				auto file_start = std::chrono::high_resolution_clock::now(); //celkovy cas
@@ -729,6 +754,21 @@ int main_curve_files(int argc, char** argv)
 				//std::string lazFileName = files[j];
 				handler->setAreaName(std::regex_replace(lazFileName, std::regex("(\\.laz)"), "")); 
 				handler->setForestName(forest.getName());
+
+				size_t pos = areaName.find(forestName);
+
+				if (pos != std::string::npos) {
+					if (pos > 0 && (areaName[pos - 1] == '_' || areaName[pos - 1] == '-')) {
+						areaName.erase(pos - 1, forestName.length() + 1);
+					}
+					else {
+						areaName.erase(pos, forestName.length());
+					}
+				}
+
+				if (!areaName.empty() && (areaName.back() == '_' || areaName.back() == '-')) {
+					areaName.pop_back();
+				}
 
 				splitString(handler->areaName(), fileNameParts); 
 
@@ -888,7 +928,7 @@ int main_features(int argc, char** argv)
 		forest.createMask();
 
 		//std::string outFilename = outDir + "/mask_forest_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".tif";
-		std::string outFilename = outDir + "/mask_forest_" + forest.getName() + ".tif";
+		std::string outFilename = outDir + "/mask_forest_" + forest.getName()+ "_"+ std::regex_replace(forest.getSegment(), std::regex("/"), "_") + ".tif";
 		forest.exportMaskToGeoTIFF(outFilename);
 
 	}
@@ -915,12 +955,12 @@ int main_features(int argc, char** argv)
 	std::ofstream csv(csvFile, std::ios::trunc);
 
 	//zapisanie headra
-	csv << "ForestName";
+	csv << "ForestName,Segment,KodPrales";
 	std::vector<std::string> metricNames = {
 		"Hmax","Hmean","Hmedian","Hp25","Hp75","Hp95","PPR","DAM_z",
 		"BR_below_1","BR_1_2","BR_2_3","BR_above_3","BR_3_4","BR_4_5",
 		"BR_below_5","BR_5_20","BR_above_20","Coeff_var_z","Hkurt",
-		"Hskew","Hstd","Hvar","Shannon"
+		"Hskew","Hstd","Hvar","Shannon","DTM","CRR","GAF","VCI","Rumple"
 	};
 	for (auto& name : metricNames) {
 		csv << "," << name << "_mean"
@@ -935,26 +975,55 @@ int main_features(int argc, char** argv)
 	for (const auto& tifPath : files)
 	{
 		RasterData raster = readGeoTiff(tifPath);
+		
+		//rozsah precitaneho tiffu
+		double tifXMin = raster.xMin;
+		double tifXMax = raster.xMin + raster.nx * raster.pixelSize;
+		double tifYMax = raster.yMax;
+		double tifYMin = raster.yMax - raster.ny * raster.pixelSize;
+
 
 		auto stem = std::filesystem::path(tifPath).stem().string();
 
-		Forest* forest = forestManager.getForestByFileName(stem);
-
-		if (!forest) {
-			std::cout << "No mask for forest: " << stem << "\n";
-			continue;
-		}/*
-		else
+		for (auto& forest : forestManager.getForests())
 		{
-			std::cout << "Mask found for: " << stem << "\n";
-			debugMaskCheck(tifPath,
-				"../../../masky/TEST_" + stem + ".tif",
-				forest->getMask());
-		}*/
+			bool matched = false;//(forest.getName() == stem);
 
-		//tu bude to pocitanie features
-		FeatureVector fv = computeFeatureVector(raster, *forest);
-		exportFeatureVectorCSV(fv, csvFile);
+			if (!matched)
+			{
+				matched = (forest.getRawMinX() >= tifXMin &&
+					forest.getRawMaxX() <= tifXMax &&
+					forest.getRawMinY() >= tifYMin &&
+					forest.getRawMaxY() <= tifYMax);
+			}
+
+			if (matched)
+			{
+				FeatureVector fv = computeFeatureVector(raster, forest);
+				exportFeatureVectorCSV(fv, csvFile);
+			}
+		}
+
+		//Forest* forest = forestManager.getForestByFileName(stem);
+
+
+		//if (!forest) {
+		//	std::cout << "No mask for forest: " << stem << std::endl;
+		//	continue;
+		//}/*
+		//else
+		//{
+		//	std::cout << "Mask found for: " << stem << "\n";
+		//	debugMaskCheck(tifPath,
+		//		"../../../masky/TEST_" + stem + ".tif",
+		//		forest->getMask());
+		//}*/
+
+		////tu bude to pocitanie features
+
+		//FeatureVector fv = computeFeatureVector(raster, *forest);
+
+		//exportFeatureVectorCSV(fv, csvFile);
 	}
 
 

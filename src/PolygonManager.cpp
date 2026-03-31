@@ -223,49 +223,58 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
         filename.c_str(),
         GDAL_OF_VECTOR,
         NULL, NULL, NULL);
-
     if (!ds)
     {
         std::cout << "Failed to open dataset\n";
         return false;
     }
 
-    //std::cout << "Layer count: " << ds->GetLayerCount() << std::endl;
-
-    OGRSpatialReference src,dst;
+    OGRSpatialReference src, dst;
     src.importFromEPSG(4326);
     dst.importFromEPSG(8353);
 
     src.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     dst.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-
     OGRCoordinateTransformation* tr = OGRCreateCoordinateTransformation(&src, &dst);
 
     for (int i = 0; i < ds->GetLayerCount(); i++)
     {
         OGRLayer* layer = ds->GetLayer(i);
         layer->ResetReading();
-
         OGRFeature* feature;
-
         while ((feature = layer->GetNextFeature()) != nullptr)
         {
             Forest forest;
 
+            // Try the simple "Name" field first (older KML style)
             if (feature->GetFieldIndex("Name") >= 0)
             {
-                auto name = feature->GetFieldAsString("Name");
-                forest.setName(std::regex_replace(name, std::regex(" "), "_"));
+                std::string name = feature->GetFieldAsString("Name");
+                if (!name.empty())
+                    forest.setName(std::regex_replace(name, std::regex(" "), "_"));
             }
-                
 
             for (int f = 0; f < feature->GetFieldCount(); f++)
             {
                 std::string fieldName = feature->GetFieldDefnRef(f)->GetNameRef();
 
-                if (fieldName == "HECTARES")
+                if (fieldName == "NAZOV")
+                {
+                    std::string name = feature->GetFieldAsString(f);
+                    if (!name.empty())  // NAZOV wins if present and non-empty
+                        forest.setName(std::regex_replace(name, std::regex(" "), "_"));
+                }
+                else if (fieldName == "HECTARES")
                 {
                     forest.setHectares(feature->GetFieldAsDouble(f));
+                }
+                else if (fieldName == "SEGMENT")
+                {
+                    forest.setSegment(feature->GetFieldAsString(f));
+                }
+                else if (fieldName == "KOD_PRALES")
+                {
+                    forest.setKodPrales(feature->GetFieldAsString(f));
                 }
             }
 
@@ -274,19 +283,14 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
                 continue;
 
             processPolygon(geom, forest, tr);
-
             forests.push_back(forest);
-
             OGRFeature::DestroyFeature(feature);
         }
+
+        GDALClose(ds);
+        std::cout << "Loaded " << forests.size() << " forests\n";
+        return true;
     }
-
-    GDALClose(ds);
-
-    std::cout << "Loaded " << forests.size() << " forests\n";
-
-    return true;
-
 }
 
 void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordinateTransformation* tr)
@@ -426,6 +430,7 @@ void Forest::findBoundingBox()
 {
     if (polygons.empty() || polygons[0].outer.getPoints().empty()) {
         minX = maxX = minY = maxY = 0;
+        rawMinX = rawMaxX = rawMinY = rawMaxY = 0;
         return;
     }
 
@@ -447,6 +452,11 @@ void Forest::findBoundingBox()
             maxY = std::max(maxY, p.Y);
         }
     }
+    rawMinX = minX;
+    rawMinY = minY;
+    rawMaxX = maxX;
+    rawMaxY = maxY;
+
     minX = std::floor(minX / 10.0) * 10.0 -pad;
     minY = std::floor(minY / 10.0) * 10.0-pad;
     maxX = std::ceil(maxX / 10.0) * 10.0 +pad;
@@ -466,6 +476,7 @@ void Forest::findTiles()
         for (int ty = minTileY; ty <= maxTileY; ty += 2000)
         {
             tiles.push_back("tile_" + std::to_string(tx) + "_" + std::to_string(ty) + ".laz");
+            tiles.push_back("tile_" + std::to_string(tx) + "_" + std::to_string(ty)  +"_" + name + ".laz");
         }
     }
 }
@@ -665,7 +676,7 @@ void Forest::exportMaskToGeoTIFF(const std::string& filename)
     srs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     if (srs.importFromEPSG(8353) != OGRERR_NONE)
     {
-        std::cerr << "Failed to import EPSG:8353\n";
+        std::cerr << "Failed to import crs\n";
     }
     srs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     char* wkt = nullptr;

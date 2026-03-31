@@ -64,6 +64,10 @@ private:
     double hectares;
     double forestArea;
     double minX, maxX, minY, maxY;
+    double rawMinX, rawMaxX, rawMinY, rawMaxY;  //hodnotz bez paddingu
+
+    std::string kod_prales="";
+    std::string segment="";
 
     std::vector<std::vector< bool >> mask;
     void rasteriseCurve( Curve& curve, std::vector<std::vector<bool>>& mask, double gridX0, double gridY0, int nx,
@@ -78,16 +82,30 @@ private:
     std::vector<std::string> tiles;
 
 public:
-    Forest() : hectares(0.0), forestArea(0),minX(0), maxX(0), minY(0), maxY(0) {}
+    Forest() : hectares(0.0), forestArea(0),
+        minX(0), maxX(0), minY(0), maxY(0),
+        rawMinX(0), rawMaxX(0), rawMinY(0), rawMaxY(0),
+        kod_prales(""), segment("") {}
 
     double getMinX() { return minX; }
     double getMinY() { return minY; }
     double getMaxX() { return maxX; }
     double getMaxY() { return maxY; }
+    double getRawMinX() const { return rawMinX; }
+    double getRawMinY() const { return rawMinY; }
+    double getRawMaxX() const { return rawMaxX; }
+    double getRawMaxY() const { return rawMaxY; }
+
+
     double getPixelSize() { return pixelSize; }
     
     const std::string& getName() const { return name; }
+    const std::string& getSegment() const { return segment; }
+    const std::string& getKodPrales() const { return kod_prales; }
+
     void setName(const std::string& n) { name = n; }
+    void setSegment(const std::string& s) { segment = s; }
+    void setKodPrales(const std::string& k) { kod_prales = k; }
 
     std::vector<PolygonGroup>& getPolygons()  { return polygons; }
     std::vector<std::string>& getTiles() { return tiles; }

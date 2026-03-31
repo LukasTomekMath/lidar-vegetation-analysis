@@ -59,8 +59,12 @@
 #define Hstd 20
 #define Hvar 21
 #define Shannon 22
+#define DTM 23
+#define CRR 24 //canopy relief ratio
+#define VCI 25 //vegetation condition index
+#define Rumple 26 //rumple index
 
-#define nMetrics 23
+#define nMetrics 27
 
 struct OutputData {
 	//casy spracovania jednotlivych ukonov
@@ -132,13 +136,15 @@ public:
 private:
 	OutputData m_output;
 	AreaInfo m_areaInfo;
+	std::vector<double> m_DTM_raw;	//na povodnom gride
+	std::vector<double> m_DTM_final;	//na redistribuovanom
 	std::vector<PixelPoints> m_meshPixels;
 	std::vector<PixelPoints> m_meshPixelsRedistributed;
 	std::vector<double *> m_metrics;
 	std::string m_areaName = "";
 	std::string m_forestName="";
 
-	StringList m_bandNames = {"Hmax", "Hmean", "Hmedian", "Hp25", "Hp75", "Hp95", "PPR", "DAM_z", "BR_below_1", "BR_1_2", "BR_2_3", "BR_above_3", "BR_3_4", "BR_4_5", "BR_below_5", "BR_5_20", "BR_above_20", "Coeff_var_z", "Hkurt", "Hskew", "Hstd", "Hvar", "Shannon"};
+	StringList m_bandNames = {"Hmax", "Hmean", "Hmedian", "Hp25", "Hp75", "Hp95", "PPR", "DAM_z", "BR_below_1", "BR_1_2", "BR_2_3", "BR_above_3", "BR_3_4", "BR_4_5", "BR_below_5", "BR_5_20", "BR_above_20", "Coeff_var_z", "Hkurt", "Hskew", "Hstd", "Hvar", "Shannon", "DTM", "CRR","VCI","Rumple"};
 
 	void readInputFile(std::string stream);
 

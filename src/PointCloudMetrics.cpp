@@ -52,6 +52,8 @@ bool DataHandler::performCalculation()
 
 	auto normalization_start = std::chrono::high_resolution_clock::now();
 	//filterPointsMAD();
+
+	cleanVegetationBelowGround();
 	filterPointsHp02();
 	//cleanVegetationBelowGround();
 	normalizePoints();
@@ -540,6 +542,8 @@ void DataHandler::cleanVegetationBelowGround()
 
 void DataHandler::normalizePoints()
 {
+	m_DTM_raw.assign(m_meshPixels.size(), NAN); 
+
 	double minZ = -1.0;
 	double minV = -1.0;
 	double minG = -1.0;
@@ -574,6 +578,8 @@ void DataHandler::normalizePoints()
 		minZ = (minG < minV) ? minG : minV;
 
 		//m_DTM[i] = StatFunctions::mean(m_meshPixels[i].groundPts.zCoords);
+
+		m_DTM_raw[i] = minZ;
 
 		for (auto& z : m_meshPixels[i].vegetationPts.zCoords)
 		{
@@ -612,6 +618,8 @@ void DataHandler::redistributePoints()
 
 	auto start = std::chrono::high_resolution_clock::now();
 
+	std::vector<std::vector<double>> dtmCollector(nPixels);
+
 	// iterate over computation mesh with desired pixel size -> (i,j)
 #pragma omp parallel for private(j,k,l,I,J,v1,v2,v1i,v2i,index,INDEX)
 	for (int i = 0; i < m_areaInfo.height; i++)
@@ -631,43 +639,49 @@ void DataHandler::redistributePoints()
 					{
 						INDEX = I * m_areaInfo.width_n + J; // compute correct INDEX in normalization mesh
 						index = i * m_areaInfo.width   + j; // compute correct index in desired computational mesh
+
+						double val = m_DTM_raw[INDEX];
+						if (!std::isnan(val)) 
+						{
+							dtmCollector[index].push_back(val);
+						}
 						
 						// move vegetation points
 						v1 = &m_meshPixelsRedistributed[index].vegetationPts.xCoords;
 						v2 = &m_meshPixels[INDEX].vegetationPts.xCoords;
 						v1->insert(v1->end(), v2->begin(), v2->end()); // insert v2 to v1
-						v2->clear(); v2->shrink_to_fit(); // clear v2 contents
+						v2->clear(); //v2->shrink_to_fit(); // clear v2 contents
 
 						v1 = &m_meshPixelsRedistributed[index].vegetationPts.yCoords;
 						v2 = &m_meshPixels[INDEX].vegetationPts.yCoords;
 						v1->insert(v1->end(), v2->begin(), v2->end()); // insert v2 to v1
-						v2->clear(); v2->shrink_to_fit(); // clear v2 contents
+						v2->clear(); //v2->shrink_to_fit(); // clear v2 contents
 
 						v1 = &m_meshPixelsRedistributed[index].vegetationPts.zCoords;
 						v2 = &m_meshPixels[INDEX].vegetationPts.zCoords;
 						v1->insert(v1->end(), v2->begin(), v2->end()); // insert v2 to v1
-						v2->clear(); v2->shrink_to_fit(); // clear v2 contents
+						v2->clear(); //v2->shrink_to_fit(); // clear v2 contents
 
 						v1i = &m_meshPixelsRedistributed[index].vegetationPts.ptClass;
 						v2i = &m_meshPixels[INDEX].vegetationPts.ptClass;
 						v1i->insert(v1i->end(), v2i->begin(), v2i->end()); // insert v2 to v1
-						v2i->clear(); v2i->shrink_to_fit(); // clear v2 contents
+						v2i->clear(); //v2i->shrink_to_fit(); // clear v2 contents
 
 						// move ground points
 						v1 = &m_meshPixelsRedistributed[index].groundPts.xCoords;
 						v2 = &m_meshPixels[INDEX].groundPts.xCoords;
 						v1->insert(v1->end(), v2->begin(), v2->end()); // insert v2 to v1
-						v2->clear(); v2->shrink_to_fit(); // clear v2 contents
+						v2->clear(); //v2->shrink_to_fit(); // clear v2 contents
 
 						v1 = &m_meshPixelsRedistributed[index].groundPts.yCoords;
 						v2 = &m_meshPixels[INDEX].groundPts.yCoords; // insert v2 to v1
 						v1->insert(v1->end(), v2->begin(), v2->end()); // clear v2 contents
-						v2->clear(); v2->shrink_to_fit(); // clear v2 contents
+						v2->clear(); //v2->shrink_to_fit(); // clear v2 contents
 
 						v1 = &m_meshPixelsRedistributed[index].groundPts.zCoords;
 						v2 = &m_meshPixels[INDEX].groundPts.zCoords; // insert v2 to v1
 						v1->insert(v1->end(), v2->begin(), v2->end()); // clear v2 contents
-						v2->clear(); v2->shrink_to_fit(); // clear v2 contents
+						v2->clear(); //v2->shrink_to_fit(); // clear v2 contents
 
 					}
 				}
@@ -677,10 +691,21 @@ void DataHandler::redistributePoints()
 	}
 
 	m_meshPixels.clear();
-	m_meshPixels.shrink_to_fit();
+	//m_meshPixels.shrink_to_fit();
 
 	auto end = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+	m_DTM_final.assign(nPixels, NO_DATA_VALUE);
+	for (int i = 0; i < nPixels; i++) 
+	{
+		if (!dtmCollector[i].empty()) {
+			m_DTM_final[i] = StatFunctions::mean(dtmCollector[i]);
+		}
+	}
+
+	m_meshPixels.clear();
+	m_DTM_raw.clear();
 
 	//printf("\nPoints redistribution: %.4lf s\n", (double)duration.count() / 1000.0);
 }
@@ -730,19 +755,28 @@ void DataHandler::computeMetrics()
 		if (nVegetationPts == 0)
 			zValues = &emptyZ;
 
+		m_metrics[DTM][i] = m_DTM_final[i];
 		// ECOSYSTEM HEIGHT METRICS
 		m_metrics[Hmax][i] = *std::max_element(zValues->begin(), zValues->end());
 
 		meanZ = StatFunctions::mean(*zValues);
 		m_metrics[Hmean][i] = meanZ;
 
-		m_metrics[Hmedian][i] = StatFunctions::percentile(*zValues, 50.0);
+		//m_metrics[Hmedian][i] = StatFunctions::percentile(*zValues, 50.0);
 
-		m_metrics[Hp25][i] = StatFunctions::percentile(*zValues, 25.0);
+		//m_metrics[Hp25][i] = StatFunctions::percentile(*zValues, 25.0);
 
-		m_metrics[Hp75][i] = StatFunctions::percentile(*zValues, 75.0);
+		//m_metrics[Hp75][i] = StatFunctions::percentile(*zValues, 75.0);
 
-		m_metrics[Hp95][i] = StatFunctions::percentile(*zValues, 95.0);
+		//m_metrics[Hp95][i] = StatFunctions::percentile(*zValues, 95.0);
+
+		std::vector<double> sortedZ = *zValues;
+		std::sort(sortedZ.begin(), sortedZ.end());
+
+		m_metrics[Hmedian][i] = StatFunctions::percentile_sorted(sortedZ, 50.0);
+		m_metrics[Hp25][i] = StatFunctions::percentile_sorted(sortedZ, 25.0);
+		m_metrics[Hp75][i] = StatFunctions::percentile_sorted(sortedZ, 75.0);
+		m_metrics[Hp95][i] = StatFunctions::percentile_sorted(sortedZ, 95.0);
 
 		m_metrics[PPR][i] = static_cast<double>(nGroundPts) / nAllPts;
 
@@ -796,8 +830,122 @@ void DataHandler::computeMetrics()
 
 		m_metrics[Shannon][i] = StatFunctions::shannonIndex(*zValues);
 
+		double zMin = *std::min_element(zValues->begin(), zValues->end());
+		double zMax = m_metrics[Hmax][i]; 
+
+		if (zMax > zMin) 
+		{
+			m_metrics[CRR][i] = (meanZ - zMin) / (zMax - zMin);
+		}
+		else {
+			m_metrics[CRR][i] = 0.0; 
+		}
+
+
+		if (nVegetationPts > 0 && zMax > 0) {
+			int bins[10] = { 0 };
+			for (double z : *zValues) {
+				int idx = static_cast<int>((z / zMax) * 9); 
+				if (idx < 0) idx = 0;
+				if (idx > 9) idx = 9;
+				bins[idx]++;
+			}
+			double vciShannon = 0.0;
+			for (int b = 0; b < 10; b++) {
+				double p = static_cast<double>(bins[b]) / nVegetationPts;
+				if (p > 0) vciShannon -= p * std::log(p);
+			}
+			m_metrics[VCI][i] = vciShannon / std::log(10.0); 
+		}
+		else {
+			m_metrics[VCI][i] = 0.0;
+		}
+
 		//std::cout << "Metrics 3/3 done\n";
 
+	}
+
+	double d = static_cast<double>(m_areaInfo.desiredPixelSize); 
+	double cellArea = d * d; 
+
+	//rumple
+	int di[8] = { -1,-1, 0, 1, 1, 1, 0,-1 };	//indexz susedov
+	int dj[8] = { 0, 1, 1, 1, 0,-1,-1,-1 };
+
+	for (int i = 0; i < m_areaInfo.height; i++)
+	{
+		for (int j = 0; j < m_areaInfo.width; j++)
+		{
+			int idx = i * m_areaInfo.width + j;
+			double hC = m_metrics[Hmax][idx];	//vysma stredoveho pixelu pre ktory ratam
+
+			if (hC <= 0)	//toto by sa stat nemalo ut you never know
+			{
+				m_metrics[Rumple][idx] = 1.0;
+				continue;
+			}
+
+			double totalArea = 0.0;
+			int validTriangles = 0;
+
+			double totalArea3D = 0.0;
+			double totalArea2D = 0.0;
+			for (int k = 0; k < 8; k++)
+			{
+				//indexy suseda ktoreho prave riesim
+				int i1 = i + di[k];
+				int j1 = j + dj[k];
+
+				//indexy dalsieho suuseda, na projuholnik potrebujem 2
+				int k2 = (k + 1) % 8;
+				int i2 = i + di[k2];
+				int j2 = j + dj[k2];
+
+				if (i1 < 0 || i1 >= m_areaInfo.height || j1 < 0 || j1 >= m_areaInfo.width)
+					continue;
+
+				if (i2 < 0 || i2 >= m_areaInfo.height || j2 < 0 || j2 >= m_areaInfo.width)
+					continue;
+
+				//index tych susedov
+				int idx1 = i1 * m_areaInfo.width + j1;
+				int idx2 = i2 * m_areaInfo.width + j2;
+
+				//najvyssia vyska v susedoch, od nich to budem pocitata
+				double h1 = m_metrics[Hmax][idx1];
+				double h2 = m_metrics[Hmax][idx2];
+
+				if (h1 <= 0 || h2 <= 0)//ani toto by sa nemalo stat, ut you never know  
+					continue;
+
+				double dx1 = di[k] * d;	//rozdiel v x-e k prvemu susedovi
+				double dy1 = dj[k] * d; //rozdiel v y k prvemu susedovy
+				double dz1 = h1 - hC; //yskovy rozdiel
+
+				double dx2 = di[k2] * d;
+				double dy2 = dj[k2] * d;
+				double dz2 = h2 - hC;
+
+				// vektorovy sucin
+				double cx = dy1 * dz2 - dz1 * dy2;
+				double cy = dz1 * dx2 - dx1 * dz2;
+				double cz = dx1 * dy2 - dy1 * dx2;
+
+				//toto su plochy tych 3-8 trojuholnikov, vektorovy sucin
+				double area3D = 0.5 * std::sqrt(cx * cx + cy * cy + cz * cz);
+				//plocha toho co je pod tym, ze akoze ia 2d cross product
+				double area2D = 0.5 * std::abs(cz);
+
+				totalArea3D += area3D;
+				totalArea2D += area2D;
+				validTriangles++;
+			}
+
+			if (validTriangles > 0 && totalArea2D > 0)
+				m_metrics[Rumple][idx] = totalArea3D / totalArea2D; 
+			else
+				m_metrics[Rumple][idx] = 1.0;
+		}
 	}
 
 	auto end = std::chrono::high_resolution_clock::now();
@@ -820,7 +968,7 @@ void DataHandler::exportMetrics(std::string fileName)
 	// fileName = std::string(".\\") + fileName.append(".tif");
 	// fileName += std::string("_h=") + std::to_string(m_areaInfo.desiredPixelSize) + std::string("m");
 
-	std::string basename = "../../../cele_slovensko/";
+	std::string basename = "../../../cele_slovensko_10x10/";
 
 	if (!std::filesystem::exists(basename)) {
 		std::filesystem::create_directories(basename);
@@ -832,6 +980,7 @@ void DataHandler::exportMetrics(std::string fileName)
 	}
 	else
 	{
+		//fileName = basename + fileName + ".tif";
 		fileName = basename + fileName + "_" + m_forestName + ".tif";
 	}
 	
@@ -881,6 +1030,8 @@ void DataHandler::exportMetrics(std::string fileName)
 	OGRSpatialReference oSRS;
 	char* pszSRS_WKT = NULL;
 	oSRS.importFromProj4("+proj=krovak +lat_0=49.5 +lon_0=24.8333333333333 +alpha=30.2881397527778 +k=0.9999 +x_0=0 +y_0=0 +ellps=bessel +units=m +no_defs +type=crs");
+	
+	
 	oSRS.exportToWkt(&pszSRS_WKT);
 	poDstDS->SetProjection(pszSRS_WKT);
 	CPLFree(pszSRS_WKT);

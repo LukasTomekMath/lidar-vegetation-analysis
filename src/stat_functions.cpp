@@ -31,6 +31,17 @@ double StatFunctions::percentile(std::vector<double> data, double p)
     return k_p;
 }
 
+double StatFunctions::percentile_sorted(const std::vector<double>& data, double p)
+{
+    if (data.empty())
+        return NO_DATA_VALUE;
+
+    double pos = (p / 100.0) * (data.size() - 1);
+    size_t idx = static_cast<size_t>(pos);
+
+    return data[idx];
+}
+
 double StatFunctions::variance(const std::vector<double>& data, const double mean)
 {
     if (data.size() < 2)
