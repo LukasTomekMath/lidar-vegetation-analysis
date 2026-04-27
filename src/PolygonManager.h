@@ -68,6 +68,8 @@ private:
 
     std::string kod_prales="";
     std::string segment="";
+    std::string hodnot_seg = "";
+    std::string poznamka = "";
 
     std::vector<std::vector< bool >> mask;
     void rasteriseCurve( Curve& curve, std::vector<std::vector<bool>>& mask, double gridX0, double gridY0, int nx,
@@ -85,7 +87,7 @@ public:
     Forest() : hectares(0.0), forestArea(0),
         minX(0), maxX(0), minY(0), maxY(0),
         rawMinX(0), rawMaxX(0), rawMinY(0), rawMaxY(0),
-        kod_prales(""), segment("") {}
+        kod_prales(""), segment(""),hodnot_seg(""),poznamka("") {}
 
     double getMinX() { return minX; }
     double getMinY() { return minY; }
@@ -102,10 +104,14 @@ public:
     const std::string& getName() const { return name; }
     const std::string& getSegment() const { return segment; }
     const std::string& getKodPrales() const { return kod_prales; }
+    const std::string& getHodnotSeg() const { return hodnot_seg; }
+    const std::string& getPoznamka() const { return poznamka; }
 
     void setName(const std::string& n) { name = n; }
     void setSegment(const std::string& s) { segment = s; }
     void setKodPrales(const std::string& k) { kod_prales = k; }
+    void setHodnotSeg(const std::string& k) { hodnot_seg = k; }
+    void setPoznamka(const std::string& k) { poznamka = k; }
 
     std::vector<PolygonGroup>& getPolygons()  { return polygons; }
     std::vector<std::string>& getTiles() { return tiles; }

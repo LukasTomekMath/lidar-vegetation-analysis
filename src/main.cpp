@@ -85,6 +85,9 @@ struct FeatureVector
 	std::string forestName;
 	std::string segment;      
 	std::string kodPrales;
+	std::string hodnotSeg;
+	std::string poznamka;
+	double hectares;
 	std::vector<MetricStats> metrics; 
 };
 
@@ -96,7 +99,7 @@ void exportFeatureVectorCSV(const FeatureVector& fv, const std::string& csvPath)
 		return;
 	}
 
-	csv << fv.forestName << "," << fv.segment << "," << fv.kodPrales;
+	csv << fv.forestName << "," << fv.segment << "," << fv.kodPrales<<","<<fv.hodnotSeg<<","<<fv.hectares<<","<<fv.poznamka;
 	for (auto& m : fv.metrics) {
 		csv << "," << m.mean << "," << m.std << "," << m.min << "," << m.max;
 	}
@@ -283,6 +286,9 @@ FeatureVector computeFeatureVector(const RasterData& raster, Forest& forest)
 	fv.segment = forest.getSegment();
 	fv.kodPrales = forest.getKodPrales();
 	fv.metrics.resize(raster.nBands);
+	fv.hodnotSeg = forest.getHodnotSeg();
+	fv.hectares = forest.getHectares();
+	fv.poznamka = (forest.getPoznamka().empty() ? "none" : "\"" + forest.getPoznamka() + "\"");
 
 	for (int i = 0; i < raster.nBands;i++)
 	{
@@ -299,7 +305,7 @@ int main_all_files(int argc, char** argv)
 	int files_done = 0;
 	omp_set_num_threads(nprocs);
 
-	int pixelsize = 10;
+	int pixelsize = 2;
 
 	std::cout << "Use case: Load all laz files in a specified directory and calculate tifs." << std::endl;
 	std::cout << "Pixel size is set to: "<<pixelsize << std::endl;
@@ -374,8 +380,8 @@ int main_all_files(int argc, char** argv)
 		//			std::cout << "file part: " << part << std::endl;
 		//		}
 
-		upperLeftX = std::stod(fileNameParts[1]);
-		upperLeftY = std::stod(fileNameParts[2]) + 2000.0;
+		upperLeftX = -450170.0;
+		upperLeftY = -1228390.0;
 
 		std::ostringstream startMsg;
 		startMsg << i + 1 << "/" << files.size() << " Processing file '" << lazFileName << "'\n" ;
@@ -384,7 +390,7 @@ int main_all_files(int argc, char** argv)
 			std::cout << startMsg.str() << std::flush;
 		}
 
-		handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY, upperLeftX+2000, upperLeftY-2000,pixelsize);
+		handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY, -449300.0, -1229310.0,pixelsize);
 
 		//#pragma omp critical
 		//		std::cout << "area name: " << handler->areaName() << std::endl;
@@ -929,7 +935,7 @@ int main_features(int argc, char** argv)
 
 		//std::string outFilename = outDir + "/mask_forest_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".tif";
 		std::string outFilename = outDir + "/mask_forest_" + forest.getName()+ "_"+ std::regex_replace(forest.getSegment(), std::regex("/"), "_") + ".tif";
-		forest.exportMaskToGeoTIFF(outFilename);
+		//forest.exportMaskToGeoTIFF(outFilename);
 
 	}
 	std::cout << "Masks done" << "\n\n";
@@ -955,7 +961,7 @@ int main_features(int argc, char** argv)
 	std::ofstream csv(csvFile, std::ios::trunc);
 
 	//zapisanie headra
-	csv << "ForestName,Segment,KodPrales";
+	csv << "ForestName,Segment,KodPrales,HodnotSeg,Hectares,Poznamka";
 	std::vector<std::string> metricNames = {
 		"Hmax","Hmean","Hmedian","Hp25","Hp75","Hp95","PPR","DAM_z",
 		"BR_below_1","BR_1_2","BR_2_3","BR_above_3","BR_3_4","BR_4_5",
@@ -1034,6 +1040,7 @@ int main_crop_laz(int argc, char** argv)
 {
 	int nprocs = 6;
 	omp_set_num_threads(nprocs);
+	GDALAllRegister();
 
 	if (argc != 3)
 	{
@@ -1112,7 +1119,7 @@ int main_crop_laz(int argc, char** argv)
 				std::string originalName = fullPath.stem().string();
 				std::string forestName = forest.getName();
 				//fs::path outputPath = outputDir / (originalName + "_" + std::regex_replace(forest.getName(), std::regex(" "), "_") + ".laz");
-				fs::path outputPath = outputDir / (originalName + "_" + forest.getName());
+				fs::path outputPath = outputDir / (originalName + "_" + forest.getName() + ".laz");
 
 				std::string lasExe = "D:\\blahova\\git\\libs\\las2las64.exe";
 
@@ -1167,13 +1174,13 @@ int main(int argc, char** argv)
 	const char* proj_paths[] = { "libs/dlls_to_copy", "./", nullptr };
 	OSRSetPROJSearchPaths(proj_paths);
 
-	main_all_files(argc, argv);
+	//main_all_files(argc, argv);
 	
 	//main_curve(argc, argv);
 
 	//main_curve_files(argc, argv);
 
-	//main_features(argc, argv);
+	main_features(argc, argv);
 
 	//main_crop_laz(argc, argv);
 }

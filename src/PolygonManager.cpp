@@ -246,7 +246,7 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
         {
             Forest forest;
 
-            // Try the simple "Name" field first (older KML style)
+
             if (feature->GetFieldIndex("Name") >= 0)
             {
                 std::string name = feature->GetFieldAsString("Name");
@@ -261,8 +261,12 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
                 if (fieldName == "NAZOV")
                 {
                     std::string name = feature->GetFieldAsString(f);
-                    if (!name.empty())  // NAZOV wins if present and non-empty
+                    if (!name.empty())  //ak je NAZOV tak ten sa zapise
                         forest.setName(std::regex_replace(name, std::regex(" "), "_"));
+                }
+                else if (fieldName == "HODNOT_SEG")
+                {
+                    forest.setHodnotSeg(feature->GetFieldAsString(f));
                 }
                 else if (fieldName == "HECTARES")
                 {
@@ -275,6 +279,10 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
                 else if (fieldName == "KOD_PRALES")
                 {
                     forest.setKodPrales(feature->GetFieldAsString(f));
+                }
+                else if (fieldName == "POZNAMKA")
+                {
+                    forest.setPoznamka(feature->GetFieldAsString(f));
                 }
             }
 
@@ -477,6 +485,7 @@ void Forest::findTiles()
         {
             tiles.push_back("tile_" + std::to_string(tx) + "_" + std::to_string(ty) + ".laz");
             tiles.push_back("tile_" + std::to_string(tx) + "_" + std::to_string(ty)  +"_" + name + ".laz");
+            tiles.push_back(name + ".laz");
         }
     }
 }
