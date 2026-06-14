@@ -1,0 +1,39 @@
+﻿BiotopID,NazovBiotopu,Typ
+BF,biotopy na inom formulari,
+Kr10,Kosodrevina,ihlicnaty
+Ls1.1,Vŕbovo-topoľové nížinné lužné lesy,listnaty
+Ls1.2,Dubovo-brestovo-jaseňové nížinné lužné lesy,listnaty
+Ls1.3,Jaseňovo-jelšové podhorské lužné lesy,listnaty
+Ls1.4,Horské jelšové lužné lesy,listnaty
+Ls10,Panónske topoľové lesy s borievkou,zmiesany
+Ls2.1,Dubovo-hrabové lesy karpatské,listnaty
+Ls2.2,Dubovo-hrabové lesy panónske,listnaty
+Ls2.3,Dubovo-hrabové lesy lipové,listnaty
+Ls3.1,Teplomilné submediteránne dubové lesy,listnaty
+Ls3.2,Teplomilné ponticko-panónske dubové lesy na spraši,listnaty
+Ls3.3,Dubové nátržníkové lesy,listnaty
+Ls3.4,Dubovo-cerové lesy,listnaty
+Ls3.5,Sucho- a kyslomilné dubové lesy,listnaty
+Ls3.51,Sucho- a kyslomilné dubové lesy A,listnaty
+Ls3.52,Sucho- a kyslomilné dubové lesy B,listnaty
+Ls3.6,Vlhko- a kyslomilné brezovo-dubové lesy,listnaty
+Ls4,Lipovo-javorové sutinové lesy,listnaty
+Ls5.1,Bukové a jedľovo-bukové kvetnaté lesy,zmiesany
+Ls5.2,Kyslomilné bukové lesy,listnaty
+Ls5.3,Javorovo-bukové horské lesy,listnaty
+Ls5.4,Vápnomilné bukové lesy,listnaty
+Ls6.1,Kyslomilné borovicové a dubovo-borovicové lesy,zmiesany
+Ls6.2,Reliktné vápnomilné borovicové a smrekovcové lesy,ihlicnaty
+Ls6.3,Lesostepné borovicové lesy,ihlicnaty
+Ls7.1,Rašeliniskové brezové lesíky,listnaty
+Ls7.2,Rašeliniskové borovicové lesy,ihlicnaty
+Ls7.3,Rašeliniskové smrekové lesy,ihlicnaty
+Ls7.4,Slatinné jelšové lesy,listnaty
+Ls8,Jedľové a jedľovo-smrekové lesy,ihlicnaty
+Ls9.1,Smrekové lesy čučoriedkové,ihlicnaty
+Ls9.2,Smrekové lesy vysokobylinné,ihlicnaty
+Ls9.3,Podmáčané smrekové lesy,ihlicnaty
+Ls9.4,Smrekovcovo-limbové lesy,ihlicnaty
+NBP,nemapované biotopy - prírodné,
+NBU,nemapované biotopy - umelé,
+NP,nemapované plochy,

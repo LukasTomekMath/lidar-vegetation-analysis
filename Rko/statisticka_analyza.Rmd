@@ -1,0 +1,946 @@
+---
+title: "segmenty_listnate_ihlicnate"
+author: "Maria"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(dplyr)
+library(psych)
+library(MASS)
+library(nortest)
+library(crosstalk)
+library(corrplot)
+library(plotly)
+library(usdm)
+library(glmnet)
+library(RColorBrewer)
+library(scales)
+library(pheatmap)
+library(ggplot2)
+library(ggraph)
+library(readr)
+library(caret)
+library(mclust)
+library(tidyr)
+library(factoextra)
+library(patchwork)
+library(FactoMineR)
+library(corrr)
+library(vegan)
+library(heplots)
+```
+
+Niektoré veci som pridávala neskôr len kvôli exportu obrázkov, niektoré sa vykresľujú normálne v kóde/do html.
+
+## Načítanie dát
+V "spolu_export" sú spojené dáta z databázy: LokalitaID,	SegmentID,	KodPralesovejLokality,	BiotopID,	Percento,	NazovBiotopu,	Typ,	LokalitaNazov,	OrografickeCelky aj s priradeným typom konkrétneho biotopu v každom zázname (listnatý/ihličnatý).
+
+V "feature_vectors_s_hektarmi" sú vypočítané features aj s vytiahnutou rozlohou z kml.
+
+"Biotopy_nazvy" sú len priradené názvy k tým kódom.
+
+```{r load-data}
+info     <- read_csv("C:/Users/Maria/Desktop/dilinovka/databaza/spolu_export.csv")
+features <- read_csv("C:/Users/Maria/Desktop/dilinovka/databaza/feature_vectors_s_hektarmi.csv")
+biotopy  <- read_csv("C:/Users/Maria/Desktop/dilinovka/databaza/biotopy_nazvy.csv")
+
+features <- features |> select(-contains(c("_min","_max")))
+
+features <- features |> select(-contains("DTM"))
+```
+
+## Čistenie feature vektorov
+
+Niektoré segmenty sú tam viac ráz, lebo sa prekrývajú v tiffe-tie idú preč. (prekrývajú akože že jeden je divný tvar a boundng box je široký a to pokryje celý ďalší prales tak ten menší je aj sám za seba vyrátaný, ale aj v tom väčšom, lebo som to robila ako "čo je vnútri to sa ráta")
+
+```{r dedup-features}
+n_before <- nrow(features)
+features <- features |> distinct()
+cat("Duplicate rows removed:", n_before - nrow(features), "\n")
+```
+
+## Príprava a join
+
+Spojenie dohromady tých info features + biotopy + názvy biotopov.
+
+```{r prepare-join}
+info     <- info     |> rename(Segment = SegmentID)
+info     <- info     |> mutate(Segment = as.character(Segment))
+features <- features |> mutate(Segment = as.character(Segment))
+
+#niektore sementy su tamviackrat lebo maju viac biotopov a viac casti, tak im pridelim cislo
+features <- features |>
+  group_by(Segment) |>
+  mutate(subpart_id = row_number()) |>
+  ungroup()
+
+# spojenie
+combined <- features |>
+  left_join(info, by = "Segment", relationship = "many-to-many")
+
+
+bad_units <- combined |>
+  group_by(Segment, subpart_id) |>
+  summarise(total_percent = sum(Percento, na.rm = TRUE), .groups = "drop") |>
+  filter(total_percent > 100)
+
+combined <- combined |>
+  anti_join(bad_units, by = c("Segment", "subpart_id"))
+
+iba_informacia<- combined|>select(ForestName,Segment,KodPrales,HodnotSeg,Hectares,Percento,NazovBiotopu,subpart_id,Poznamka)
+```
+
+## Chýbajúce segmenty
+
+Niektoré segmenty nemáme biotopy— najmä tie z 2. mapovania, lavínové žľaby, mladiny, výseky. Tu sa len zisťujú, mažú sa ďalej.
+
+```{r missing-segments}
+missing <- features |>
+  filter(!Segment %in% info$Segment) 
+
+cat("Chýbajú info o segmentoch:", nrow(missing), "\n")
+if (nrow(missing) > 0) print(missing$Segment)
+```
+
+## Odstránenie NA
+
+Väčšina dôvodov: 2. mapovací cyklus, lavínové žľaby, sute, skaly (napr. Bielovodská dolina). Proste nemajú v tej tabulke info aj keď sú označené ako prales
+
+```{r remove-na-1}
+n_before <- nrow(combined)
+combined <- combined |> drop_na()
+cat("Rows with NA removed:", n_before - nrow(combined), "\n")
+```
+## Jeden riadok na segment — výpočet typu
+
+Ak má segment viac biotopov, ale všetky rovnakého typu, zachováme typ.
+Ak má mix typov 1 a 2, priradíme typ 3 (zmiešané).
+
+```{r dominantne typy}
+
+combined_unique <- combined |>
+  distinct(Segment, BiotopID, Percento, Typ, .keep_all = TRUE)
+
+type_dominance <- combined_unique |>
+  group_by(Segment, Typ) |>
+  summarise(total_percent = sum(Percento, na.rm = TRUE), .groups = "drop")
+
+problem_segments <- type_dominance |>
+  group_by(Segment) |>
+  filter(total_percent == max(total_percent)) |>
+  filter(n() > 1)
+
+dominant_type <- type_dominance |>
+  group_by(Segment) |>
+  slice_max(total_percent, n = 1, with_ties = FALSE) |>
+  ungroup()
+
+dominant_clean <- dominant_type |>
+  filter(total_percent >= 90)
+
+combined <- combined |>
+  left_join(
+    dominant_clean |> rename(Typ_dominant = Typ),
+    by = "Segment"
+  ) |>
+  filter(!is.na(Typ_dominant)) |>   
+  mutate(Typ = Typ_dominant) |>     
+  select(-Typ_dominant)|>
+  group_by(Segment, subpart_id) |>
+  slice_max(Percento, n = 1, with_ties = FALSE) |>
+  ungroup()
+```
+
+## Odstranenie malych
+
+Od oka 0,35ha je hranica
+
+```{r odstranit male}
+#tak odoka som vybrala 0,35ha
+combined<-combined |> filter(Hectares>0.35)
+```
+
+## Necháme iba ihličnaté a listnaté
+```{r binarna uprava}
+combined_binary <- combined |>
+  filter(Typ %in% c("listnaty", "ihlicnaty")) |>
+  droplevels()
+```
+
+```{r clean-data}
+data_clean <- combined_binary |>
+  select(where(is.numeric)) |>
+  select(-any_of(c("subpart_id", "LokalitaID", "Datum", "MapovatelHlavnyID",
+                   "zapisID_kb", "Percento", "Hectares", "Area", "Perimeter","Typ","total_percent")))
+
+forest_names <- combined_binary$ForestName
+forest_types <- combined_binary$Typ
+forest_biotopes <- combined_binary$BiotopID
+
+```
+
+
+## nearZeroVar — rozšírený filter variancie
+
+Toto robilo niečo keď tam bolo to DTM, ale keď už tam nie je tak to nemazalo nič. Je to tu ale aj tak pre istotu.
+
+```{r nzv}
+nzv_idx <- nearZeroVar(data_clean, saveMetrics = FALSE)
+
+if(length(nzv_idx) > 0) {
+  pca_input <- data_clean[, -nzv_idx]
+  cat("Odstránené NZV stĺpce:", names(data_clean)[nzv_idx], "\n")
+} else {
+  pca_input <- data_clean
+  cat("Žiadne stĺpce s nulovou varianciou sa nenašli.\n")
+}
+
+cat("Zostatok stĺpcov pre ďalší krok:", ncol(pca_input), "\n")
+```
+
+## Korelácia — filter
+
+Thershold je 0.95
+
+```{r correlation-filter}
+cor_matrix   <- cor(pca_input, use = "pairwise.complete.obs")
+high_cor_idx <- findCorrelation(cor_matrix, cutoff = 0.95, verbose = TRUE)
+
+print(names(pca_input)[high_cor_idx])
+pca_input <- pca_input[, -high_cor_idx]
+cat("Zostatok stĺpcov:", ncol(pca_input), "\n")
+```
+
+## VIF filter
+
+"Variance Inflation Factor (VIF) is a statistical measure used to quantify how much the variance of an estimated regression coefficient increases due to multicollinearity among predictor variables."
+Iteračný proces, postupne to maže.
+
+```{r vif}
+
+vif_result <- vifstep(as.data.frame(pca_input), th = 10)
+print(vif_result)
+
+pca_input <- pca_input[, names(pca_input) %in% vif_result@results$Variables]
+cat("Zostatok stĺpcov:", ncol(pca_input), "\n")
+```
+
+## korelacie
+```{r corrplot}
+cor_matrix_final <- cor(pca_input, use = "pairwise.complete.obs")
+
+corrplot(cor_matrix_final, 
+         method = "color", 
+         type = "upper",
+         tl.cex = 0.5,
+         tl.col = "black",
+         order = "hclust",
+         diag = FALSE)
+```
+
+```{r corrplot-2}
+
+corrplot(cor_matrix_final,
+         order   = "hclust",
+         addrect = 5,
+         method  = "color",
+         tl.cex  = 0.4)
+```
+
+## PCA
+```{r pca}
+fit <- prcomp(pca_input, center = TRUE, scale. = TRUE)
+summary(fit)
+
+pve <- fit$sdev^2 / sum(fit$sdev^2)
+
+scree <- data.frame(PC = 1:15, PVE = pve[1:15])
+
+ggplot(scree, aes(x = PC, y = PVE)) +
+  geom_line(linewidth = 1.2, color = "#2C3E50") +
+  geom_point(size = 3, color = "#E74C3C") +
+  scale_x_continuous(breaks = 1:15) +
+  labs(title = "Scree Plot", x = "PC", y = "PVE") +
+  theme_minimal(base_size = 14)
+
+cumulative <- data.frame(
+  PC         = 1:length(pve),
+  Cumulative = cumsum(pve)
+)
+
+ggplot(cumulative, aes(x = PC, y = Cumulative)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5) +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "darkgreen") +
+  labs(title = "Cumulative Variance Explained",
+       x     = "Principal Component",
+       y     = "Cumulative Proportion") +
+  theme_minimal(base_size = 14)
+
+
+```
+
+```{r biplot}
+pca_scores          <- as.data.frame(fit$x)
+pca_scores$ForestName <- forest_names
+pca_scores$Type     <- forest_types
+pca_scores$SegmentID  <- combined_binary$Segment
+pca_scores$size <- combined_binary$Hectares
+pca_scores$hodnotseg <- as.factor(combined_binary$HodnotSeg)
+
+fviz_pca_biplot(fit,
+                geom.ind     = "point",
+                habillage    = pca_scores$Type,
+                pointsize    = 2,
+                addEllipses  = TRUE,
+                ellipse.level = 0.95,
+                col.var      = "black",
+                alpha.var    = 0.5,
+                select.var   = list(contrib = 10),
+                repel        = TRUE,
+                legend.title = "Typ lesa") +
+  theme_minimal() +
+  ggtitle("Biplot")
+
+```
+
+## Interaktívny PCA scatter plot
+
+```{r plotly-pca}
+plot_ly(
+  data   = pca_scores,
+  x      = ~PC1,
+  y      = ~PC2,
+  size   = ~size,   
+  sizes  = c(5, 30),  
+  type   = "scatter",
+  mode   = "markers",
+  symbol = ~hodnotseg,
+  marker = list(
+    sizemode = "diameter",
+    opacity = 0.7,
+    line = list(width = 0.5, color = "white")
+  ),
+  color  = ~as.factor(Type),
+  colors = c("red", "blue", "darkgreen", "pink", "cyan"),
+  text   = ~paste0("Forest: ", ForestName, "<br>ID: ", SegmentID, "<br>ha: ",size),
+  hoverinfo = "text"
+)
+```
+
+```{r 3d}
+plot_ly(
+  data = pca_scores,
+  x = ~PC1,
+  y = ~PC6,
+  z = ~PC5,
+  size   = ~size,   
+  sizes  = c(5, 30),  
+  type   = "scatter3d",
+  mode   = "markers",
+  marker = list(
+    sizemode = "diameter",
+    opacity = 0.8,
+    line = list(width = 0.5, color = "white")
+  ),
+  color = ~as.factor(Type),
+  colors = "Set1",
+  text = ~paste0("Forest: ", ForestName, "<br>ID: ", SegmentID),
+  hoverinfo = "text"
+)
+
+plot_ly(
+  data = pca_scores,
+  x = ~PC1,
+  y = ~PC2,
+  z = ~PC4,
+  size   = ~size,   
+  sizes  = c(5, 30),  
+  type   = "scatter3d",
+  mode   = "markers",
+  marker = list(
+    sizemode = "diameter",
+    opacity = 0.8,
+    line = list(width = 0.5, color = "white")
+  ),
+  color=~as.factor(Type),
+  colors = "Set1",
+  text = ~paste0("Forest: ", ForestName, "<br>ID: ", SegmentID),
+  hoverinfo = "text"
+)
+```
+
+```{r scatter biotop}
+dominant_biotopes <- combined_binary |>
+  group_by(Segment) |>
+  slice_max(order_by = Percento, n = 1, with_ties = FALSE) |>
+  select(Segment, DominantBiotop = BiotopID) |>
+  ungroup()
+
+
+pca_scores2 <- as.data.frame(fit$x) |>
+  mutate(
+    SegmentID = combined_binary$Segment,
+    size = combined_binary$Hectares
+  ) |>
+  left_join(dominant_biotopes, by = c("SegmentID" = "Segment"))
+
+
+pca_scores2 <- pca_scores2 |>mutate(
+    BiotopGroup = case_when(
+      DominantBiotop %in% c("Ls3.1","Ls3.51","Ls3.52") ~ "Ls3",
+      DominantBiotop %in% c("Ls5.2","Ls5.3","Ls5.4")   ~ "Ls5",
+      DominantBiotop %in% c("Ls7.2","Ls7.4")           ~ "Ls7",
+      DominantBiotop %in% c("Ls9.1","Ls9.2","Ls9.3","Ls9.4") ~ "Ls9",
+      TRUE ~ DominantBiotop  
+    ),
+    
+    BiotopName = case_when(
+    BiotopGroup == "Ls3"   ~ "Ls3 – Dubové lesy",
+    BiotopGroup == "Ls5"   ~ "Ls5 – Bukové a listnaté bukové lesy",
+    BiotopGroup == "Ls7"   ~ "Ls7 – Rašeliniskové lesy",
+    BiotopGroup == "Ls9"   ~ "Ls9 – Smrekové lesy",
+    BiotopGroup == "Ls8"   ~ "Ls8 – Jedľové a jedľovo-smrekové lesy",
+    BiotopGroup == "Kr10"  ~ "Kr10 – Kosodrevina",
+    BiotopGroup == "Ls1.3" ~ "Ls1.3 – Jaseňovo-jelšové podhorské lužné lesy",
+    BiotopGroup == "Ls2.1" ~ "Ls2.1 – Dubovo-hrabové lesy karpatské",
+    BiotopGroup == "Ls4"   ~ "Ls4 – Lipovo-javorové sutinové lesy",
+    BiotopGroup == "Ls6.2" ~ "Ls6.2 – Reliktné vápnomilné borovicové a smrekovcové lesy",
+    TRUE ~ BiotopGroup
+  )
+  )
+
+plot_ly(
+  data = pca_scores2, 
+  x = ~PC1, 
+  y = ~PC2,
+  size = ~size,
+  sizes = c(5, 30),
+  type = "scatter",
+  mode = "markers",
+  marker = list(
+    sizemode = "diameter",
+    opacity = 1,
+    line = list(width = 0.5, color = "white")
+  ),
+  color = ~as.factor(BiotopName), 
+  colors = "Set3",
+  text = ~paste0("ID: ", SegmentID, "<br>Biotop: ", DominantBiotop)
+)
+
+plot_ly(
+  data = pca_scores2,
+  x = ~PC1,
+  y = ~PC6,
+  z = ~PC5,
+  size   = ~size,   
+  sizes  = c(5, 30),  
+  type   = "scatter3d",
+  mode   = "markers",
+  marker = list(
+    sizemode = "diameter",
+    opacity = 0.8,
+    line = list(width = 0.5, color = "white")
+  ),
+  color = ~as.factor(BiotopName), 
+  colors = "Set3",
+  text = ~paste0("ID: ", SegmentID, "<br>Biotop: ", DominantBiotop)
+)
+
+
+biotop_colors <- c(
+  "Kr10 – Kosodrevina"                                         = "#3dac8b", 
+  "Ls1.3 – Jaseňovo-jelšové podhorské lužné lesy"             = "#df7728",  
+  "Ls2.1 – Dubovo-hrabové lesy karpatské"                     = "#8a85be",  
+  "Ls3 – Dubové lesy"                                         = "#eb499b",  
+  "Ls4 – Lipovo-javorové sutinové lesy"                       = "#7db340",  
+  "Ls5 – Bukové a listnaté bukové lesy"                       = "#eab828",  
+  "Ls6.2 – Reliktné vápnomilné borovicové a smrekovcové lesy" = "#ff0000",  
+  "Ls7 – Rašeliniskové lesy"                                  = "#f6b295",  
+  "Ls8 – Jedľové a jedľovo-smrekové lesy"                     = "#a2cee3",  
+  "Ls9 – Smrekové lesy"                                       = "#792f85"   
+)
+
+p_biotopy <- ggplot(pca_scores2, aes(x = PC1, y = PC2, color = BiotopName, size = size)) +
+  geom_point(alpha = 0.9) +
+  scale_color_manual(
+    values = biotop_colors,
+    labels = stringr::str_wrap(names(biotop_colors), width = 25)
+  ) +
+  scale_size_continuous(
+    range  = c(1, 8),
+    name   = "Plocha (ha)",
+    breaks = c(0.5, 1, 2, 5, 10, 20)
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.5) +
+  labs(x = "PC1 (28,1 %)", y = "PC2 (21,9 %)", color = " ") +
+  guides(
+    color = guide_legend(override.aes = list(size = 4), byrow = TRUE),
+    size  = guide_legend()
+  ) +
+  theme_bw(base_size = 18) +
+  theme(
+    legend.position  = "right",
+    legend.text      = element_text(size = 16),
+    legend.title     = element_text(size = 18, face = "bold"),
+    legend.key.size  = unit(1, "lines"),
+    legend.spacing.y = unit(0.3, "cm")
+  )
+
+ggsave("biotopy_scatter.png", plot = p_biotopy, width = 11, height = 6, dpi = 300)
+```
+
+## Loadingy
+```{r hlavne komponenty}
+get_top_contributors <- function(pca_fit, pc_num, n = 10) {
+  loadings <- pca_fit$rotation[, pc_num]
+  top_vars <- sort(abs(loadings), decreasing = TRUE)[1:n]
+  data.frame(
+    Variable = names(top_vars),
+    Loading = loadings[names(top_vars)],
+    PC = paste0("PC", pc_num)
+  )
+}
+
+top_pc1 <- get_top_contributors(fit, 1)
+top_pc2 <- get_top_contributors(fit, 2)
+
+
+
+rbind(top_pc1, top_pc2)
+
+fviz_contrib(fit, choice = "var", axes = 1, top = 20, fill = "lightgray", color = "black") +
+  theme_minimal() +
+  ggtitle("Najvýznamnejšie premenné pre PC1") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+fviz_contrib(fit, choice = "var", axes = 2, top = 20, fill = "lightgray", color = "black") +
+  theme_minimal() +
+  ggtitle("Najvýznamnejšie premenné pre PC2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+```
+
+## Interaktívne boxploty metrík
+
+```{r boxplots-interactive}
+long_data_final <- combined_binary |>
+  select(Typ, all_of(names(pca_input))) |>
+  pivot_longer(-Typ, names_to = "Variable", values_to = "Value")
+
+shared_df <- SharedData$new(long_data_final)
+
+filter_menu <- filter_select(
+  id = "var_selector",
+  label = "metrika:",
+  sharedData = shared_df,
+  group = ~Variable,
+  multiple = FALSE
+)
+
+p_dynamic <- plot_ly(shared_df, 
+        x = ~Typ, 
+        y = ~Value, 
+        color = ~Typ,
+        colors = c("ihlicnaty" = "#1B5E20", "listnaty" = "#E65100"),
+        type = "box", 
+        boxpoints = "all",    
+        jitter = 0.5,         
+        pointpos = 0,         
+        marker = list(
+          opacity = 0.4, 
+          size = 4,
+          line = list(width = 0) 
+        ),
+        line = list(width = 2)
+) |>
+  layout(
+    yaxis = list(title = "Value"),
+    xaxis = list(title = ""),
+    showlegend = FALSE,
+    margin = list(t = 50)
+  )
+
+bscols(
+  widths = c(3, 9),
+  list(filter_menu),
+  p_dynamic
+)
+```
+
+
+
+## LDA
+```{r lda}
+
+#lda_fit <- lda(x = scale(pca_input), grouping = forest_types)
+lda_fit <- lda(x = pca_scores[, 1:7], grouping = forest_types)
+
+lda_scores <- as.data.frame(predict(lda_fit)$x)
+lda_scores$Type <- forest_types
+lda_scores$ForestName <- forest_names
+lda_scores$SegmentID  <- combined_binary$Segment
+lda_scores$Poznamka <-combined_binary$Poznamka
+lda_scores$Percento_dom <-combined_binary$Percento
+lda_scores$Percento_type<-combined_binary$total_percent
+lda_scores$size <- combined_binary$Hectares
+
+
+ggplot(lda_scores, aes(x = LD1, fill = Type)) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = c("ihlicnaty" = "#1B5E20", "listnaty" = "#E65100")) +
+  theme_minimal() +
+  labs(title = "LDA — rozdelenie typov lesa", x = "LD1", y = "Hustota")
+
+predictions <- predict(lda_fit)$class
+lda_scores$PredictedType <- predictions
+wrong_samples <- lda_scores[lda_scores$Type != lda_scores$PredictedType, ]
+print(wrong_samples[, c("ForestName", "Type", "PredictedType", "LD1","SegmentID","Poznamka","Percento_dom","Percento_type")])
+```
+
+```{r lda s hranicou}
+vars <- paste0("PC", 1:7)
+
+X <- as.matrix(pca_scores[, vars])
+# X= riadky sú segmenty, stlpce su ich hodnoty PC1 az 7
+g <- droplevels(as.factor(forest_types)) #to len ulozi zaradom ci je listnaty/ihlicnaty seg
+lev <- levels(g)#ia ake su triedy, my mame 2
+
+# priemery tried
+mu1 <- colMeans(X[g == lev[1], , drop = FALSE])
+mu2 <- colMeans(X[g == lev[2], , drop = FALSE])
+
+# spoločná kovariančná matica tried
+S_pooled <- matrix(0, nrow = length(vars), ncol = length(vars),
+                   dimnames = list(vars, vars))
+
+for (cl in lev) {
+  Xg <- X[g == cl, , drop = FALSE]
+  S_pooled <- S_pooled + (nrow(Xg) - 1) * cov(Xg)
+}
+
+S_pooled <- S_pooled / (nrow(X) - length(lev))
+
+# inverzia kovariančnej matice
+Sinv <- solve(S_pooled)
+
+# priory z LDA modelu
+pi1 <- lda_fit$prior[lev[1]]
+pi2 <- lda_fit$prior[lev[2]]
+
+# parametre diskriminačných funkcií delta_1 a delta_2
+a1 <- as.vector(Sinv %*% mu1)
+a2 <- as.vector(Sinv %*% mu2)
+
+names(a1) <- vars
+names(a2) <- vars
+
+b1 <- as.numeric(-0.5 * t(mu1) %*% Sinv %*% mu1 + log(pi1))
+b2 <- as.numeric(-0.5 * t(mu2) %*% Sinv %*% mu2 + log(pi2))
+
+# hranica: delta_1 = delta_2
+# teda: (a1 - a2)^T x + (b1 - b2) = 0
+
+A <- a1 - a2
+B <- b1 - b2
+
+xvar <- "PC1"
+yvar <- "PC6"
+zvar <- "PC5"
+
+other <- setdiff(vars, c(xvar, yvar, zvar))
+
+fixed_other <- colMeans(X[, other, drop = FALSE])
+
+axis_x <- seq(min(X[, xvar]), max(X[, xvar]), length.out = 40)
+axis_y <- seq(min(X[, yvar]), max(X[, yvar]), length.out = 40)
+
+const_other <- sum(A[other] * fixed_other)
+
+surface_z <- outer(axis_x, axis_y, function(x, y) {
+  -(A[xvar] * x + A[yvar] * y + const_other + B) / A[zvar]
+})
+
+p_3d <-plot_ly() %>%
+  add_markers(
+    data = pca_scores,
+    x = ~PC1,
+    y = ~PC6,
+    z = ~PC5,
+    color = ~as.factor(forest_types),
+    colors = c("#f8766d", "#00bfc4"),
+    marker = list(
+    size = 4,
+    sizemode = "diameter",
+    opacity = 1),
+    text = ~paste0("Forest: ", ForestName, "<br>ID: ", SegmentID),
+    hoverinfo = "text"
+  ) %>%
+  add_surface(
+    x = ~axis_x,
+    y = ~axis_y,
+    z = ~t(surface_z),
+    opacity = 0.75,
+    showscale = FALSE,
+    colorscale = list(c(0, 1), c("#708090", "#708090"))
+  ) %>%
+  layout(
+    scene = list(
+      xaxis = list(title = xvar),
+      yaxis = list(title = yvar),
+      zaxis = list(title = zvar, range = c(-6, 5))
+    )
+  )
+
+
+p_3d
+
+
+
+xvar_2d <- "PC1"
+yvar_2d <- "PC6"
+
+# všetky komponenty, ktoré v 2D grafe nezobrazujeme
+# sem teraz patrí aj PC5
+other_2d <- setdiff(vars, c(xvar_2d, yvar_2d))
+
+# fixujeme ich na priemerné hodnoty
+fixed_other_2d <- colMeans(X[, other_2d, drop = FALSE])
+
+# ich príspevok do rovnice hranice
+const_other_2d <- sum(A[other_2d] * fixed_other_2d)
+
+# rovnica hranice:
+# A_PC1 * PC1 + A_PC6 * PC6 + const_other_2d + B = 0
+# vyjadríme PC6 ako y:
+# PC6 = -(A_PC1 * PC1 + const_other_2d + B) / A_PC6
+
+slope_2d <- -A[xvar_2d] / A[yvar_2d]
+intercept_2d <- -(const_other_2d + B) / A[yvar_2d]
+
+p_biplot <- fviz_pca_biplot(fit,
+                axes          = c(1, 6),
+                geom.ind      = "point",
+                habillage     = pca_scores$Type, 
+                pointsize     = 2.5,             
+                addEllipses   = TRUE,
+                ellipse.level = 0.95,
+                col.var       = "black",
+                alpha.var     = 0.6,      
+                select.var    = list(contrib = 10),
+                labelsize     = 6,               
+                repel         = TRUE,            
+                legend.title  = "Typ lesa",
+                axes.linetype = "blank") +
+  theme_minimal(base_size = 18) +
+  labs(
+    x = "PC1 (28,1 %)",
+    y = "PC6 (5 %)",
+    title = NULL
+  ) +
+  theme(
+    axis.title      = element_text(size = 18),
+    axis.text       = element_text(size = 14),
+    legend.title    = element_text(size = 16),
+    legend.text     = element_text(size = 14),
+    legend.position = c(0.88, 0.15),
+    legend.background = element_rect(fill = "white", color = "black"),
+    panel.grid.major = element_line(color = "grey90", linewidth = 0.3),
+    panel.grid.minor = element_blank(),
+    plot.margin      = margin(10, 10, 10, 10)
+  )
+
+
+p_biplot_with_line <- p_biplot + 
+  geom_hline(yintercept = 0, color = "grey65", linewidth = 0.5) +
+  geom_vline(xintercept = 0, color = "grey65", linewidth = 0.5) +
+  geom_abline(
+    intercept = intercept_2d, 
+    slope = slope_2d, 
+    color = "black", 
+    linewidth = 1.2
+  )
+
+# 3. Zobrazenie a uloženie
+print(p_biplot_with_line)
+ggsave("biplot_PC1_PC6_LDA.png", plot = p_biplot_with_line, width = 11, height = 7, dpi = 300)
+```
+
+ABsolutne hodnoty !!
+
+```{r lda-loadings}
+lda_loadings <- sort(abs(lda_fit$scaling[, 1]), decreasing = TRUE)
+print(head(lda_loadings, 15))
+```
+
+```{r lda-scatter}
+plot_ly(
+  data = lda_scores,
+  x = ~LD1,
+  y = ~jitter(rep(0, nrow(lda_scores)), amount = 0.3),
+  size   = ~size,   
+  sizes  = c(5, 30),  
+  type   = "scatter",
+  mode   = "markers",
+  marker = list(
+    sizemode = "diameter",
+    opacity = 0.7,
+    line = list(width = 0.5, color = "white")
+  ),
+  color = ~as.factor(Type),
+  colors = c("ihlicnaty" = "#1B5E20", "listnaty" = "#E65100"),
+  text = ~paste0("Forest: ", ForestName, "<br>Type: ", Type, "<br>Segment: ",SegmentID),
+  hoverinfo = "text"
+) |>
+  layout(
+    title = "LDA scatter",
+    xaxis = list(title = "LD1"),
+    yaxis = list(title = "", showticklabels = FALSE, zeroline = FALSE),
+    showlegend = TRUE
+  )
+```
+
+
+```{r, cv}
+set.seed(123)
+
+df <- data.frame(
+  forest_types = as.factor(forest_types),
+  pca_input
+)
+
+# LOOCV
+lda_loocv <- train(
+  forest_types ~ .,
+  data = df,
+  method = "lda",
+  preProcess = c("center", "scale", "pca"),
+  trControl = trainControl(method = "LOOCV", savePredictions = TRUE),preProcOptions = list(thresh = 0.90)
+)
+
+cat("\n=== LOOCV ===\n")
+print(lda_loocv)
+confusionMatrix(lda_loocv$pred$pred, lda_loocv$pred$obs)
+
+# k-fold CV
+lda_kfold <- train(
+  forest_types ~ .,
+  data = df,
+  method = "lda",
+  preProcess = c("center", "scale", "pca"),
+  trControl = trainControl(method = "cv", savePredictions = TRUE, number = 5),
+  preProcOptions = list(thresh = 0.90)
+)
+
+cat("\n=== 5-FOLD CV ===\n")
+print(lda_kfold)
+confusionMatrix(lda_kfold$pred$pred, lda_kfold$pred$obs)
+```
+
+## Testy na LDA
+
+Test homogenity kovariančných matíc
+
+```{r, box-m}
+box_test <- boxM(pca_input, forest_types)
+print(box_test)
+```
+
+dosť sa líšia, hm
+
+```{r normalita}
+qqnorm(pca_scores$PC1[forest_types == "ihlicnaty"])
+qqline(pca_scores$PC1[forest_types == "ihlicnaty"])
+
+qqnorm(pca_scores$PC1[forest_types == "listnaty"])
+qqline(pca_scores$PC1[forest_types == "listnaty"])
+
+by(pca_scores$PC1, forest_types, shapiro.test)
+```
+
+```{r porovnanie lda qda}
+ ctrl <- trainControl(method = "cv", number = 5)
+
+lda_model <- train(
+  forest_types ~ .,
+  data = df,
+  method = "lda",
+  preProcess = c("center", "scale", "pca"),
+  trControl = ctrl
+)
+
+
+qda_model <- train(
+  forest_types ~ .,
+  data = df,
+  method = "qda",
+  preProcess = c("center", "scale", "pca"),
+  trControl = ctrl
+)
+
+lda_model
+qda_model 
+```
+
+
+
+```{r, lda qda}
+set.seed(123)
+df7 <- data.frame(
+  forest_types = as.factor(forest_types),
+  pca_scores[, paste0("PC", 1:7)]
+)
+
+# LOOCV
+lda_loocv <- train(
+  forest_types ~ .,
+  data = df7,
+  method = "lda",
+  trControl = trainControl(method = "LOOCV", savePredictions = TRUE)
+)
+cat("\n=== LOOCV ===\n")
+print(lda_loocv)
+confusionMatrix(lda_loocv$pred$pred, lda_loocv$pred$obs)
+
+set.seed(123)
+# k-fold CV
+lda_kfold <- train(
+  forest_types ~ .,
+  data = df7,
+  method = "lda",
+  trControl = trainControl(method = "cv", savePredictions = TRUE, number = 5)
+)
+cat("\n=== 5-FOLD CV ===\n")
+print(lda_kfold)
+confusionMatrix(lda_kfold$pred$pred, lda_kfold$pred$obs)
+
+set.seed(123)
+
+qda_loocv <- train(
+  forest_types ~ .,
+  data = df7,
+  method = "qda",
+  trControl = trainControl(method = "LOOCV", savePredictions = TRUE)
+)
+
+cat("\n=== QDA LOOCV ===\n")
+print(qda_loocv)
+confusionMatrix(qda_loocv$pred$pred, qda_loocv$pred$obs)
+
+
+set.seed(123)
+
+qda_kfold <- train(
+  forest_types ~ .,
+  data = df7,
+  method = "qda",
+  trControl = trainControl(method = "cv", savePredictions = TRUE, number = 5)
+)
+
+cat("\n=== QDA 5-FOLD CV ===\n")
+print(qda_kfold)
+confusionMatrix(qda_kfold$pred$pred, qda_kfold$pred$obs)
+```
+

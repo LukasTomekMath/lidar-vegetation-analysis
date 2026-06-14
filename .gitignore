@@ -6,6 +6,7 @@
 !python
 !mathematica
 !matlab
+!Rko
 !*.cpp
 !*.h
 !*.py
@@ -14,6 +15,10 @@
 !*.m
 !*.mlapp
 !*.txt
+!*.R
+!*.Rmd
+!*.csv
+!*.html
 !CmakeLists.txt
 #!libs.zip
 #!libsOLD.zip
