@@ -20,5 +20,6 @@
 !*.csv
 !*.html
 !CmakeLists.txt
+#!*.zip
 #!libs.zip
 #!libsOLD.zip

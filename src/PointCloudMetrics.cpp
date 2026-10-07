@@ -375,7 +375,7 @@ void DataHandler::filterPointsHp95()
 	{
 		for (int j = 0; j < Wn; j++)
 		{
-			int idx1 = i * Wn + j;	//index origoš pixela na 1x1
+			int idx1 = i * Wn + j;	//index origoï¿½ pixela na 1x1
 			int I = i / factor;	//indexy noveho vacsieho pixela v 2d mriezke
 			int J = j / factor;
 			int idx10 = I * W10 + J;	//index noveho vacsieho pixela v 1d poli
@@ -968,7 +968,7 @@ void DataHandler::exportMetrics(std::string fileName)
 	// fileName = std::string(".\\") + fileName.append(".tif");
 	// fileName += std::string("_h=") + std::to_string(m_areaInfo.desiredPixelSize) + std::string("m");
 
-	std::string basename = "../../../cele_slovensko_10x10/";
+	std::string basename = "../../../raster_metrics/";
 
 	if (!std::filesystem::exists(basename)) {
 		std::filesystem::create_directories(basename);

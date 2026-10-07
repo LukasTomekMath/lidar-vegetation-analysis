@@ -380,8 +380,12 @@ int main_all_files(int argc, char** argv)
 		//			std::cout << "file part: " << part << std::endl;
 		//		}
 
-		upperLeftX = -450170.0;
-		upperLeftY = -1228390.0;
+
+		upperLeftX = std::stod(fileNameParts[1]);
+		upperLeftY = std::stod(fileNameParts[2]) + 2000.0;
+
+		// upperLeftX = -450170.0;
+		// upperLeftY = -1228390.0;
 
 		std::ostringstream startMsg;
 		startMsg << i + 1 << "/" << files.size() << " Processing file '" << lazFileName << "'\n" ;
@@ -390,7 +394,8 @@ int main_all_files(int argc, char** argv)
 			std::cout << startMsg.str() << std::flush;
 		}
 
-		handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY, -449300.0, -1229310.0,pixelsize);
+		handler->setupAreaInfo(files[i].entry.path().string(),upperLeftX, upperLeftY,upperLeftX + 2000, upperLeftY - 2000,pixelsize);
+		// handler->setupAreaInfo(files[i].entry.path().string(), upperLeftX, upperLeftY, -449300.0, -1229310.0,pixelsize);
 
 		//#pragma omp critical
 		//		std::cout << "area name: " << handler->areaName() << std::endl;
@@ -1174,13 +1179,13 @@ int main(int argc, char** argv)
 	const char* proj_paths[] = { "libs/dlls_to_copy", "./", nullptr };
 	OSRSetPROJSearchPaths(proj_paths);
 
-	//main_all_files(argc, argv);
+	main_all_files(argc, argv);
 	
 	//main_curve(argc, argv);
 
 	//main_curve_files(argc, argv);
 
-	main_features(argc, argv);
+	// main_features(argc, arRgv);
 
 	//main_crop_laz(argc, argv);
 }
