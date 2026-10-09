@@ -2,7 +2,7 @@ import rasterio
 from rasterio.windows import from_bounds
 import numpy as np
 
-# porovnanie dvoch rastrov na overlaped area, toto bolo v case study
+# porovnanie dvoch rastrov na overlapping area, toto bolo v case study
 
 r1 = r"vsetky_OLD\\Boky_OLD.tif"
 r2 = r"vsetky_NEW\\Boky_NEW.tif"

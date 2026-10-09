@@ -87,7 +87,7 @@ struct AreaInfo
 	// Grid size of the output raster (should be 10x10m per pixel).
 	int width = -1;
 	int height = -1;
-	// Size of 1 pixel of the output raster (should 10m).
+	// Size of 1 pixel of the output raster (should be 10m).
 	int desiredPixelSize = -1;
 	// Coordinates of the upper left corner of the output raster.
 	double xLeft = -1.0;

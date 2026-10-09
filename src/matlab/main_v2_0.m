@@ -423,7 +423,7 @@ legend('KML curve','\Omega', '\Omega discr')
 fprintf("In square for n = %.2f -> %d pixels\n", n, nnz(XYin))
 
 
-%% Find all necessarry laz files for all curves
+%% Find all necessary laz files for all curves
 uniqueLaz = cell(1);
 uniqueLaz{1} = '';
 unique = 1;

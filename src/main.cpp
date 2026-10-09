@@ -1,4 +1,4 @@
-﻿#define _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
 
 #include <omp.h>
 #include <stdio.h>
@@ -25,7 +25,7 @@
 
 // Data handler include
 #include "PointCloudMetrics.h"
-#include "PolygonManager.h"
+#include "ForestManager.h"
 
 namespace fs = std::filesystem;
 
@@ -70,7 +70,7 @@ struct RasterData
 	double pixelSize = 0.0;
 };
 
-//len na zednodusenie prace s metrikami a co mam z nich ratat
+//len na zjednodusenie prace s metrikami a co mam z nich ratat
 struct MetricStats
 {
 	double mean;
@@ -108,7 +108,7 @@ void exportFeatureVectorCSV(const FeatureVector& fv, const std::string& csvPath)
 }
 
 
-//citanie tif subboru na spracovanie pomocou masky
+//citanie tif suboru na spracovanie pomocou masky
 RasterData readGeoTiff(const std::string& filename)
 {
 	RasterData out;
@@ -240,17 +240,17 @@ MetricStats computeStatsForBand(const std::vector<double>& band, Forest& forest,
 	{
 		for (int mx = 0; mx < maskW; mx++) 
 		{
-			if (!mask[my][mx]) continue; //mimo maskz
+			if (!mask[my][mx]) continue; //mimo masky
 
-			//prepocet na svetove suradnice resp metre
+			//prepocet na svetove suradnice, resp. metre
 			double worldX = fMinX + mx * raster.pixelSize;
 			double worldY = fMaxY - my * raster.pixelSize;
 
-			//prepocet na suradnice v rastri, teda ktorz pixel v ti to je
+			//prepocet na suradnice v rastri, teda ktory pixel v tife to je
 			int rx = std::round((worldX - raster.xMin) / raster.pixelSize);
 			int ry = std::round((raster.yMax - worldY) / raster.pixelSize);
 
-			//ci to ahodou nevzletelo von
+			//ci to nahodou nevyletelo von
 			if (rx < 0 || rx >= raster.nx || ry < 0 || ry >= raster.ny) continue;
 
 			double v = band[ry * raster.nx + rx];
@@ -458,7 +458,7 @@ int main_all_files(int argc, char** argv)
 	}
 }
 
-//testovanie nacitania kriviek a check ktore subory treba
+//testovanie nacitania kriviek a kontrola, ktore subory treba
 int main_curve(int argc, char** argv)
 {
 	if (argc != 3)
@@ -487,7 +487,6 @@ int main_curve(int argc, char** argv)
 			std::string filename = entry.path().string();
 			std::cout << "Loading KML: " << filename << std::endl;
 
-			//forestManager.loadFromKML(filename);
 			forestManager.parseKML_GDAL(filename);
 			fileCount++;
 		}
@@ -518,7 +517,7 @@ int main_curve(int argc, char** argv)
 		forest.findBoundingBox();
 		forest.findTiles();
 
-		//toto je len vypis do suboru ze tore subory treba laz
+		//toto je len vypis do suboru, ktore LAZ subory treba
 		tiles << forest.getName() << ": \n";
 		std::vector<std::string>& subory = forest.getTiles();
 		tile_counter += subory.size();
@@ -536,15 +535,15 @@ int main_curve(int argc, char** argv)
 		file << "Kod prales: " << forest.getKodPrales() << "\n";
 		file << std::fixed << std::setprecision(6);
 		file << "Hectares: " << forest.getForestArea() / 10000.0 << "\n";
-		file << "Polygon groups: " << polygons.size() << "\n\n";
+		file << "Polygons: " << polygons.size() << "\n\n";
 
 		for (size_t j = 0; j < polygons.size(); ++j)
 		{
-			PolygonGroup& pg = polygons[j];
+			ForestPolygon& pg = polygons[j];
 
 			auto& outerPoints = pg.outer.getPoints();
 
-			file << "  PolygonGroup #" << j << ":\n";
+			file << "  Polygon #" << j << ":\n";
 			file << "    Outer boundary points: " << outerPoints.size() << "\n";
 			file << "    Outer perimeter: " << pg.outer.getPerimeter() << " m\n";
 
@@ -682,7 +681,6 @@ int main_curve_files(int argc, char** argv)
 			std::string filename = entry.path().string();
 			std::cout << "Loading KML: " << filename << std::endl;
 
-			//forestManager.loadFromKML(filename);
 			forestManager.parseKML_GDAL(filename);
 			fileCount++;
 		}
@@ -701,7 +699,7 @@ int main_curve_files(int argc, char** argv)
 		Forest& forest = forests[i];
 
 		//setup na konkretne subory
-		forest.calculateForestArea();//tuto sa aj vymazavaju tie male inners lebo e to viazane na rozlohu
+		forest.calculateForestArea();//tuto sa aj vymazavaju tie male inners, lebo je to viazane na rozlohu
 		forest.findBoundingBox();
 		forest.findTiles();
 		for (const auto& fe : forest.getTiles())
@@ -720,16 +718,16 @@ int main_curve_files(int argc, char** argv)
 
 	const int chunk = 5;
 
-	//pre kazdy les musim najst tiles ktore treba 
+	//pre kazdy les musim najst tiles, ktore treba 
 #pragma omp parallel for schedule(dynamic, chunk)
 	for (int i = 0; i < forests.size(); ++i)
 	{
 		Forest& forest = forests[i];
-		auto& files = forest.getTiles(); //toto su tie subory co chcem precitat pre dany les
+		auto& files = forest.getTiles(); //toto su tie subory, co chcem precitat pre dany les
 
 		for (int j = 0; j < files.size(); j++)//prechadzanie cez jednotlive subory
 		{
-			fs::path fullPath = fs::path(lazDir) / files[j];//cela cest k suboru, tu chcem citat
+			fs::path fullPath = fs::path(lazDir) / files[j];//cela cesta k suboru, tu chcem citat
 			
 
 			if (fs::exists(fullPath))
@@ -752,7 +750,7 @@ int main_curve_files(int argc, char** argv)
 //					continue;
 //				}
 
-				//co sa ma spravit ked sa konkretny subor najde- vypocita sa co sa ma
+				//co sa ma spravit, ked sa konkretny subor najde - vypocita sa, co sa ma
 				auto file_start = std::chrono::high_resolution_clock::now(); //celkovy cas
 
 				std::vector<std::string> fileNameParts; 
@@ -870,7 +868,7 @@ int main_curve_files(int argc, char** argv)
 			}
 			else
 			{
-				//co sa ma spravit ked sa nenajde- nic
+				//co sa ma spravit, ked sa nenajde - nic
 				files_done++;
 				std::cout << forest.getName() << "\n";
 				std::cout << "[MISSING] " << files[j] << "\n";
@@ -918,7 +916,6 @@ int main_features(int argc, char** argv)
 			std::string filename = entry.path().string();
 			std::cout << "Loading KML: " << filename << std::endl;
 
-			//forestManager.loadFromKML(filename);
 			forestManager.parseKML_GDAL(filename);
 			fileCount++;
 		}
@@ -965,7 +962,7 @@ int main_features(int argc, char** argv)
 	std::string csvFile = "feature_vectors.csv";
 	std::ofstream csv(csvFile, std::ios::trunc);
 
-	//zapisanie headra
+	//zapisanie hlavicky
 	csv << "ForestName,Segment,KodPrales,HodnotSeg,Hectares,Poznamka";
 	std::vector<std::string> metricNames = {
 		"Hmax","Hmean","Hmedian","Hp25","Hp75","Hp95","PPR","DAM_z",
@@ -1040,7 +1037,7 @@ int main_features(int argc, char** argv)
 
 }
 
-//orezanie laz suborov ia na casti v bounding boxoch a ulozenie zvlast
+//orezanie laz suborov iba na casti v bounding boxoch a ulozenie zvlast
 int main_crop_laz(int argc, char** argv)
 {
 	int nprocs = 6;
@@ -1075,7 +1072,6 @@ int main_crop_laz(int argc, char** argv)
 			std::string filename = entry.path().string();
 			std::cout << "Loading KML: " << filename << std::endl;
 
-			//forestManager.loadFromKML(filename);
 			forestManager.parseKML_GDAL(filename);
 			fileCount++;
 		}
@@ -1183,7 +1179,7 @@ int main(int argc, char** argv)
 	
 	//main_curve(argc, argv);
 
-	//main_curve_files(argc, argv);
+	// main_curve_files(argc, argv);
 
 	// main_features(argc, arRgv);
 

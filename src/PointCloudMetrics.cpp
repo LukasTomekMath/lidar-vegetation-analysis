@@ -4,7 +4,7 @@ DataHandler::DataHandler()
 {
 }
 
-// TODO: pridat metodu na initalizovanie `m_areaInfo` premennej
+// TODO: pridat metodu na inicializovanie `m_areaInfo` premennej
 
 DataHandler::~DataHandler()
 {
@@ -193,7 +193,7 @@ bool DataHandler::readLazFile()
 }
 
 /*
-// ? TODO: toto by sa mozno mohlo pouzit namiesto upravovania `readLazFiles` metody, kedze by to mal but rovnaky kod
+// ? TODO: toto by sa mozno mohlo pouzit namiesto upravovania `readLazFiles` metody, kedze by to mal byt rovnaky kod
 // bool DataHandler::readLasFile(std::string lasFileName)
 // {
 // 	LASreadOpener lasReadOpener;
@@ -305,14 +305,14 @@ bool DataHandler::readLazFile()
 
 void DataHandler::filterPointsMAD()
 {
-	double C = 15.0;	//nasobok MAD ktorz ude urcovat co je outlier
+	double C = 15.0;	//nasobok MAD, ktory bude urcovat, co je outlier
 
 #pragma omp parallel for
 	for (int i = 0; i < m_meshPixels.size(); i++)
 	{
 		auto& px = m_meshPixels[i];
 
-		// treba dat dokopz vsetky body veg+ground
+		// treba dat dokopy vsetky body veg+ground
 		std::vector<double> allZ;
 		allZ.reserve(px.groundPts.zCoords.size() + px.vegetationPts.zCoords.size());
 
@@ -340,9 +340,9 @@ void DataHandler::filterPointsMAD()
 		// m a thresh su brane ako referencia, nekopiruju sa
 		// zisti sa, ci je rozdiel medzi vyskou a medianom vacsi ako Cx ten MAD, ak ano, tak sa vrati TRUE
 		// na zaklade toho sa oznaci ten dany element ako "na vymazanie", ale remove_if nevymazava, on len 
-		//reorganizuje tie co su ok dopredu, tie co su na vymazanie dozadu, a vrati iterator na posledny OK elem
-		//vymazanie je potom cez erase od toho co vratilo remove_if po koniec vektora
-		//trocha neintuitivne ale som to nasla ako nejake ustalene "erase remove if" co sa v cpp pouziva
+		//reorganizuje tie, co su OK, dopredu, tie, co su na vymazanie, dozadu, a vrati iterator na posledny OK elem
+		//vymazanie je potom cez erase od toho, co vratilo remove_if po koniec vektora
+		//trocha neintuitivne, ale som to nasla ako nejake ustalene "erase remove if" co sa v cpp pouziva
 
 		// prefiltrujem vegetaciu
 		auto& vz = px.vegetationPts.zCoords;
@@ -356,12 +356,12 @@ void DataHandler::filterPointsMAD()
 
 void DataHandler::filterPointsHp95()
 {
-	//toto idem komentovat ako fanatik lebo tieto pixelove veci ma vzdy matu ze co kde je aky index and stuff lol
+	//toto idem komentovat ako fanatik, lebo tieto pixelove veci ma vzdy matu, co je kde a aky je index and stuff lol
 
-	int factor = 10;	//velkost "pixela" na ktorom idem ratat, 10x10m
-	double dist = 5.0;	//vzdialenost nad Hp95 nad ktorou budem uz orezavat
+	int factor = 10;	//velkost "pixela", na ktorom idem ratat, 10x10m
+	double dist = 5.0;	//vzdialenost nad Hp95, nad ktorou budem uz orezavat
 
-	int Wn = m_areaInfo.width_n;	//sirka mriezky ked je pixel 1x1 (v normalizacii a filtrovani)
+	int Wn = m_areaInfo.width_n;	//sirka mriezky, ked je pixel 1x1 (v normalizacii a filtrovani)
 	int Hn = m_areaInfo.height_n;
 
 	int W10 = (Wn + factor - 1) / factor;	//zaokruhlenie nahor, je to ze +9, lebo ak by to bolo napr. Wn=211 tak mi treba 22 pixelov, cize (211+9)/10 je ok a ak by to bolo (215+9)/10=22 lebo / proste oreze i think
@@ -394,8 +394,8 @@ void DataHandler::filterPointsHp95()
 		if (v.size() < 10)  //akoze asi sa nestane ze na 10x10 bude menej ako 10 bodov but you never know
 			continue;
 
-		size_t k = static_cast<size_t>(0.95 * (v.size() - 1));	//index bodu ktory je "ten" na 95p
-		std::nth_element(v.begin(), v.begin() + k, v.end());	//toto je rychlejsie jak sort a proste len potrebujem hodnotu na tom k-tom indexe
+		size_t k = static_cast<size_t>(0.95 * (v.size() - 1));	//index bodu, ktory je "ten" na 95p
+		std::nth_element(v.begin(), v.begin() + k, v.end());	//toto je rychlejsie ako sort a proste len potrebujem hodnotu na tom k-tom indexe
 		hp95[i] = v[k];	//finalna hodnota Hp95 na danom 10x10 pix
 	}
 
@@ -410,14 +410,14 @@ void DataHandler::filterPointsHp95()
 			int idx10 = I * W10 + J;
 
 			double ref = hp95[idx10];	//referencna hodnota pre dany "pixel"
-			if (!std::isfinite(ref))	//ak by napr zostal tam NaN z inicializacie tak skip
+			if (!std::isfinite(ref))	//ak by napr. zostal NaN z inicializacie, tak skip
 				continue;
 
 			auto& vz = m_meshPixels[idx1].vegetationPts.zCoords;
 
 			vz.erase(
 				std::remove_if(vz.begin(), vz.end(),
-					[&](double z) { return z > ref + dist; }),	//ak je z bodu vacsie ako ref+dist tak sa zmaze
+					[&](double z) { return z > ref + dist; }),	//ak je z bodu vacsie ako ref+dist, tak sa zmaze
 				vz.end()
 			);
 		}
@@ -534,7 +534,7 @@ void DataHandler::cleanVegetationBelowGround()
 
 			auto& vz = m_meshPixels[idx1].vegetationPts.zCoords;
 			vz.erase(std::remove_if(vz.begin(), vz.end(), [&](double z) 
-				{return z < groundFloor[idxF];}),	//ak je vegetation point pod min zeme tak sa vymaze
+				{return z < groundFloor[idxF];}),	//ak je vegetation point pod min zeme, tak sa vymaze
 				vz.end());
 		}
 	}
@@ -869,7 +869,7 @@ void DataHandler::computeMetrics()
 	double cellArea = d * d; 
 
 	//rumple
-	int di[8] = { -1,-1, 0, 1, 1, 1, 0,-1 };	//indexz susedov
+	int di[8] = { -1,-1, 0, 1, 1, 1, 0,-1 };	//indexy susedov
 	int dj[8] = { 0, 1, 1, 1, 0,-1,-1,-1 };
 
 	for (int i = 0; i < m_areaInfo.height; i++)
@@ -877,9 +877,9 @@ void DataHandler::computeMetrics()
 		for (int j = 0; j < m_areaInfo.width; j++)
 		{
 			int idx = i * m_areaInfo.width + j;
-			double hC = m_metrics[Hmax][idx];	//vysma stredoveho pixelu pre ktory ratam
+			double hC = m_metrics[Hmax][idx];	//vyska stredoveho pixela, pre ktory ratam
 
-			if (hC <= 0)	//toto by sa stat nemalo ut you never know
+			if (hC <= 0)	//toto by sa stat nemalo, but you never know
 			{
 				m_metrics[Rumple][idx] = 1.0;
 				continue;
@@ -892,11 +892,11 @@ void DataHandler::computeMetrics()
 			double totalArea2D = 0.0;
 			for (int k = 0; k < 8; k++)
 			{
-				//indexy suseda ktoreho prave riesim
+				//indexy suseda, ktoreho prave riesim
 				int i1 = i + di[k];
 				int j1 = j + dj[k];
 
-				//indexy dalsieho suuseda, na projuholnik potrebujem 2
+				//indexy dalsieho suseda, na trojuholnik potrebujem 2
 				int k2 = (k + 1) % 8;
 				int i2 = i + di[k2];
 				int j2 = j + dj[k2];
@@ -911,16 +911,16 @@ void DataHandler::computeMetrics()
 				int idx1 = i1 * m_areaInfo.width + j1;
 				int idx2 = i2 * m_areaInfo.width + j2;
 
-				//najvyssia vyska v susedoch, od nich to budem pocitata
+				//najvyssia vyska v susedoch, od nich to budem pocitat
 				double h1 = m_metrics[Hmax][idx1];
 				double h2 = m_metrics[Hmax][idx2];
 
-				if (h1 <= 0 || h2 <= 0)//ani toto by sa nemalo stat, ut you never know  
+				if (h1 <= 0 || h2 <= 0)//ani toto by sa nemalo stat, but you never know  
 					continue;
 
 				double dx1 = di[k] * d;	//rozdiel v x-e k prvemu susedovi
-				double dy1 = dj[k] * d; //rozdiel v y k prvemu susedovy
-				double dz1 = h1 - hC; //yskovy rozdiel
+				double dy1 = dj[k] * d; //rozdiel v y k prvemu susedovi
+				double dz1 = h1 - hC; //vyskovy rozdiel
 
 				double dx2 = di[k2] * d;
 				double dy2 = dj[k2] * d;
@@ -933,7 +933,7 @@ void DataHandler::computeMetrics()
 
 				//toto su plochy tych 3-8 trojuholnikov, vektorovy sucin
 				double area3D = 0.5 * std::sqrt(cx * cx + cy * cy + cz * cz);
-				//plocha toho co je pod tym, ze akoze ia 2d cross product
+				//plocha toho, co je pod tym, ze akoze iba 2d cross product
 				double area2D = 0.5 * std::abs(cz);
 
 				totalArea3D += area3D;

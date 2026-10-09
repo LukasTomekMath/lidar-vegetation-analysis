@@ -113,7 +113,7 @@ double StatFunctions::skewness(const std::vector<double>& data, const double mea
 
 double StatFunctions::shannonIndex(const std::vector<double>& data)
 {
-    // skusit aj Simpson index
+    // skusit aj Simpsonov index
     if (data.empty())
         return NO_DATA_VALUE;
 

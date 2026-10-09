@@ -201,7 +201,7 @@ colorbar
 axis equal
 % plotCurvesPolyshape(curves)
 
-%% Find all necessarry laz files for all curves
+%% Find all necessary laz files for all curves
 uniqueLaz = cell(1);
 uniqueLaz{1} = '';
 unique = 1;
