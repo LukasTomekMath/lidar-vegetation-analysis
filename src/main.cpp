@@ -26,6 +26,8 @@
 // Data handler include
 #include "PointCloudMetrics.h"
 #include "ForestManager.h"
+#include "RasterIO.h"
+#include "FeatureVector.h"
 
 namespace fs = std::filesystem;
 
@@ -55,106 +57,6 @@ struct FileInfo {
 	fs::directory_entry entry; 
 	std::uint64_t size; 
 };
-
-//structura na precitany tif subor
-struct RasterData
-{
-	int nx = 0;
-	int ny = 0;
-	int nBands = 0;
-	std::vector<std::vector<double>> bands; // [band][y*nx + x]
-	std::vector<double> noDataValues;
-
-	double xMin = 0.0;     //vlavo hore
-	double yMax = 0.0;     //vlavo hore
-	double pixelSize = 0.0;
-};
-
-//len na zjednodusenie prace s metrikami a co mam z nich ratat
-struct MetricStats
-{
-	double mean;
-	double std;
-	double min;
-	double max;
-};
-
-//samotny vysledny feature vector pre dany prales
-struct FeatureVector
-{
-	std::string forestName;
-	std::string segment;      
-	std::string kodPrales;
-	std::string hodnotSeg;
-	std::string poznamka;
-	double hectares;
-	std::vector<MetricStats> metrics; 
-};
-
-void exportFeatureVectorCSV(const FeatureVector& fv, const std::string& csvPath)
-{
-	std::ofstream csv(csvPath,std::ios::app);
-	if (!csv.is_open()) {
-		std::cerr << "Cannot open CSV: " << csvPath << "\n";
-		return;
-	}
-
-	csv << fv.forestName << "," << fv.segment << "," << fv.kodPrales<<","<<fv.hodnotSeg<<","<<fv.hectares<<","<<fv.poznamka;
-	for (auto& m : fv.metrics) {
-		csv << "," << m.mean << "," << m.std << "," << m.min << "," << m.max;
-	}
-	csv << "\n";
-	csv.flush();
-}
-
-
-//citanie tif suboru na spracovanie pomocou masky
-RasterData readGeoTiff(const std::string& filename)
-{
-	RasterData out;
-
-	GDALDataset* ds = (GDALDataset*)GDALOpen(filename.c_str(), GA_ReadOnly);
-	if (!ds)
-		throw std::runtime_error("Failed to open " + filename);
-
-	out.nx = GDALGetRasterXSize(ds);
-	out.ny = GDALGetRasterYSize(ds);
-	out.nBands = GDALGetRasterCount(ds);
-
-	double adfGeoTransform[6];
-	if (ds->GetGeoTransform(adfGeoTransform) == CE_None) {
-		out.xMin = adfGeoTransform[0]; 
-		out.yMax = adfGeoTransform[3]; 
-		out.pixelSize = adfGeoTransform[1]; 
-	}
-
-	out.bands.resize(out.nBands);
-	out.noDataValues.resize(out.nBands);
-
-
-	for (int b = 0; b < out.nBands; b++)
-	{
-		GDALRasterBandH band = GDALGetRasterBand(ds, b + 1);
-
-		int hasNoData = 0;
-		double noDataVal = GDALGetRasterNoDataValue(band, &hasNoData);
-
-		out.noDataValues[b] = hasNoData ? noDataVal : std::numeric_limits<double>::quiet_NaN();
-
-		out.bands[b].resize(out.nx * out.ny);
-
-		GDALRasterIO(band, GF_Read,
-			0, 0,
-			out.nx, out.ny,
-			out.bands[b].data(),
-			out.nx, out.ny,
-			GDT_Float64,
-			0, 0);
-	}
-
-	GDALClose(ds);
-	return out;
-}
 
 //testovacia funkcia
 void applyMask(RasterData& r, const std::vector<std::vector<bool>>& mask, double noData)
@@ -216,87 +118,6 @@ void debugMaskCheck(const std::string& inTif, const std::string& outTif, const s
 
 	GDALClose(src);
 }
-
-MetricStats computeStatsForBand(const std::vector<double>& band, Forest& forest, const RasterData& raster, int bandIdx)
-{
-	MetricStats s{};
-
-	double noData = raster.noDataValues[bandIdx];
-	const auto& mask = forest.getMask();
-
-	int maskH = mask.size();
-	if (maskH == 0) return s;
-	int maskW = mask[0].size();
-
-	double fMinX = forest.getMinX();
-	double fMaxY = forest.getMaxY();
-
-
-	double sum = 0.0;
-	int count = 0;
-	std::vector<double> values;
-
-	for (int my = 0; my < maskH; my++) 
-	{
-		for (int mx = 0; mx < maskW; mx++) 
-		{
-			if (!mask[my][mx]) continue; //mimo masky
-
-			//prepocet na svetove suradnice, resp. metre
-			double worldX = fMinX + mx * raster.pixelSize;
-			double worldY = fMaxY - my * raster.pixelSize;
-
-			//prepocet na suradnice v rastri, teda ktory pixel v tife to je
-			int rx = std::round((worldX - raster.xMin) / raster.pixelSize);
-			int ry = std::round((raster.yMax - worldY) / raster.pixelSize);
-
-			//ci to nahodou nevyletelo von
-			if (rx < 0 || rx >= raster.nx || ry < 0 || ry >= raster.ny) continue;
-
-			double v = band[ry * raster.nx + rx];
-
-			if (!std::isfinite(v) || v == noData) continue;
-
-			if (count == 0) { s.min = s.max = v; }
-			if (v < s.min) s.min = v;
-			if (v > s.max) s.max = v;
-
-			sum += v;
-			values.push_back(v); 
-			count++;
-		}
-	}
-
-	if (count > 0) {
-		s.mean = sum / count;
-		double var = 0.0;
-		for (double v : values) {
-			var += (v - s.mean) * (v - s.mean);
-		}
-		s.std = std::sqrt(var / count);
-	}
-
-	return s;
-}
-
-FeatureVector computeFeatureVector(const RasterData& raster, Forest& forest)
-{
-	FeatureVector fv;
-	fv.forestName = forest.getName();
-	fv.segment = forest.getSegment();
-	fv.kodPrales = forest.getKodPrales();
-	fv.metrics.resize(raster.nBands);
-	fv.hodnotSeg = forest.getHodnotSeg();
-	fv.hectares = forest.getHectares();
-	fv.poznamka = (forest.getPoznamka().empty() ? "none" : "\"" + forest.getPoznamka() + "\"");
-
-	for (int i = 0; i < raster.nBands;i++)
-	{
-		fv.metrics[i] = computeStatsForBand(raster.bands[i],forest,raster,i);
-	}
-	return fv;
-}
-
 
 //povodne spracovanie vsetkych suborov (bez pralesov) + filtracia
 int main_all_files(int argc, char** argv)

@@ -8,7 +8,7 @@
 class Forest {
 private:
     std::string name;
-    std::vector<ForestPolygon> polygons; //Segment sa moze skladat z viacerych uzemi - polygonov. A kazdy polygon moze mat dieru/y
+    std::vector<ForestPolygon> polygons; //Forest sa moze skladat z viacerych uzemi - polygonov. A kazdy polygon moze mat dieru/y
     double hectares;
     double forestArea;
     double minX, maxX, minY, maxY;
