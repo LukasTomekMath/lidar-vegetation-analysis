@@ -1,10 +1,13 @@
 #include "FeatureVector.h"
+#include "MetricDefinitions.h"
 #include "Forest.h"
 #include "RasterIO.h"
 
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
+
 
 
 MetricStats computeStatsForBand(const std::vector<double>& band, Forest& forest, const RasterData& raster, int bandIdx)
@@ -73,7 +76,7 @@ MetricStats computeStatsForBand(const std::vector<double>& band, Forest& forest,
 FeatureVector computeFeatureVector(const RasterData& raster, Forest& forest)
 {
 	FeatureVector fv;
-	fv.forestName = forest.getName();
+	fv.forestName = forest.getNameWithoutDiacritics();
 	fv.segment = forest.getSegment();
 	fv.kodPrales = forest.getKodPrales();
 	fv.metrics.resize(raster.nBands);
@@ -88,6 +91,25 @@ FeatureVector computeFeatureVector(const RasterData& raster, Forest& forest)
 	return fv;
 }
 
+
+void initializeFeatureVectorCSV(const std::string& csvPath)
+{
+    std::ofstream csv(csvPath, std::ios::trunc);
+    if (!csv)
+        throw std::runtime_error("Cannot create CSV: " + csvPath);
+
+    // zapisanie hlavicky
+    csv << "ForestName,Segment,KodPrales,HodnotSeg,Hectares,Poznamka";
+    for (const auto &name : metrics::names)
+    {
+        csv << "," << name << "_mean"
+            << "," << name << "_std"
+            << "," << name << "_min"
+            << "," << name << "_max";
+    }
+    csv << "\n";
+    csv.close();
+}
 
 void exportFeatureVectorCSV(const FeatureVector& fv, const std::string& csvPath)
 {

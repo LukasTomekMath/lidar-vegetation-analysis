@@ -1,8 +1,31 @@
 #include "ForestManager.h"
+#include "RasterIO.h"
+#include <filesystem>
 #include <iostream>
+#include <stdexcept>
 #include <regex>
+#include <memory>
 
 #include "libs/gdal_include/ogrsf_frmts.h"
+
+void ForestManager::loadDirectory(const std::string& directory)
+{
+    int fileCount = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(directory))
+    {
+        if (entry.is_regular_file() && entry.path().extension() == ".kml")
+        {
+            const std::string filename = entry.path().string();
+            std::cout << "Loading KML: " << filename << std::endl;
+
+            if (!parseKML_GDAL(filename))
+                throw std::runtime_error("Failed to load KML: " + filename);
+            ++fileCount;
+        }
+    }
+    std::cout << "Finished reading " << fileCount << " KML files.\n";
+    std::cout << "Total forests loaded: " << forests.size() << "\n\n";
+}
 
 Forest* ForestManager::getForestByFileName(const std::string& fileName)
 {
@@ -29,13 +52,25 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
         return false;
     }
 
-    OGRSpatialReference src, dst;
-    src.importFromEPSG(4326);
-    dst.importFromEPSG(8353);
+    std::unique_ptr<GDALDataset, decltype(&GDALClose)> datasetGuard(ds, GDALClose);
+    OGRSpatialReference src;
+    OGRSpatialReference dst(targetCRS);
+    if (src.importFromEPSG(4326) != OGRERR_NONE)
+    {
+        throw std::runtime_error("Cannot load EPSG:4326");
+    }
 
+    // Zachovaj poradie GIS osi: zemepisna dlzka/sirka a vystupne X/Y.
     src.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     dst.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     OGRCoordinateTransformation* tr = OGRCreateCoordinateTransformation(&src, &dst);
+    if (!tr)
+    {
+        throw std::runtime_error("Cannot create KML coordinate transformation");
+    }
+
+    std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>
+        transformGuard(tr, OCTDestroyCoordinateTransformation);
 
     for (int i = 0; i < ds->GetLayerCount(); i++)
     {
@@ -45,8 +80,10 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
         while ((feature = layer->GetNextFeature()) != nullptr)
         {
             Forest forest;
+            forest.setCRS(spatial::toWkt(dst));
 
 
+            // Zakladny nazov z Name moze neskor prepisat atribut NAZOV.
             if (feature->GetFieldIndex("Name") >= 0)
             {
                 std::string name = feature->GetFieldAsString("Name");
@@ -54,6 +91,7 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
                     forest.setName(std::regex_replace(name, std::regex(" "), "_"));
             }
 
+            // Prevezmi podporovane atributy; ostatne polia zostanu nevyuzite.
             for (int f = 0; f < feature->GetFieldCount(); f++)
             {
                 std::string fieldName = feature->GetFieldDefnRef(f)->GetNameRef();
@@ -86,19 +124,24 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
                 }
             }
 
+            // Prvok bez geometrie sa neprida; nepodporovana geometria moze dat prazdny Forest.
             OGRGeometry* geom = feature->GetGeometryRef();
             if (!geom)
+            {
+                OGRFeature::DestroyFeature(feature);
                 continue;
+            }
 
             processPolygon(geom, forest, tr);
             forests.push_back(forest);
             OGRFeature::DestroyFeature(feature);
         }
 
-        GDALClose(ds);
+        // Navrat je vo vnutri cyklu vrstiev, preto sa dalsie vrstvy uz nenacitaju.
         std::cout << "Loaded " << forests.size() << " forests\n";
         return true;
     }
+    return false;
 }
 
 void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordinateTransformation* tr)
@@ -127,6 +170,7 @@ void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordin
 
         Curve outerCurve;
 
+        // Cyklus cez vsetky body outer krivky
         for (int i = 0; i < outer->getNumPoints(); i++)
         {
             Point p;
@@ -139,7 +183,9 @@ void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordin
             double y = p.lat;
             double z = p.alt;
 
-            OCTTransform(tr, 1, &x, &y, &z);
+            // Transformacia lon, lat, alt na X,Y,Z
+            if (!OCTTransform(tr, 1, &x, &y, &z))
+                throw std::runtime_error("KML coordinate transformation failed");
 
             p.X = x;
             p.Y = y;
@@ -148,6 +194,7 @@ void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordin
             outerCurve.addPoint(p);
         }
 
+        // Vypocet dlzky krivky
         outerCurve.calculateEdgeLengths();
         outerCurve.calculatePerimeter();
 
@@ -156,6 +203,8 @@ void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordin
         int innerCount = poly->getNumInteriorRings();
 
 
+        // Diery (inner krivky) sa spracuju rovnako; male diery sa odstranuju az pri vypocte plochy Forest.
+        // cyklus cez vsetky inner krivky
         for (int r = 0; r < innerCount; r++)
         {
             OGRLinearRing* ring = poly->getInteriorRing(r);
@@ -165,6 +214,7 @@ void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordin
 
             Curve inner;
 
+            // Cyklus cez vsetky body inner krivky
             for (int i = 0; i < ring->getNumPoints(); i++)
             {
                 Point p;
@@ -177,7 +227,9 @@ void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordin
                 double y = p.lat;
                 double z = p.alt;
 
-                OCTTransform(tr, 1, &x, &y, &z);
+                // Transformacia lon, lat, alt na X,Y,Z
+                if (!OCTTransform(tr, 1, &x, &y, &z))
+                throw std::runtime_error("KML coordinate transformation failed");
 
                 p.X = x;
                 p.Y = y;
@@ -185,7 +237,7 @@ void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordin
 
                 inner.addPoint(p);
             }
-
+            // Vypocet dlzky krivky
             inner.calculateEdgeLengths();
             inner.calculatePerimeter();
 
@@ -198,6 +250,7 @@ void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordin
     else if (type == wkbMultiPolygon)
     {
 
+        // Vsetky casti viacnasobneho polygonu patria do tej istej lokality.
         OGRMultiPolygon* mp = (OGRMultiPolygon*)geom;
 
         for (int i = 0; i < mp->getNumGeometries(); i++)
@@ -208,6 +261,7 @@ void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordin
 
     else if (type == wkbGeometryCollection)
     {
+        // Rekurzia prejde aj vnorene kolekcie; nepolygonove casti nic nepridaju.
         OGRGeometryCollection* gc = (OGRGeometryCollection*)geom;
 
         for (int i = 0; i < gc->getNumGeometries(); i++)

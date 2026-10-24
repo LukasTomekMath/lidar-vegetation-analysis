@@ -1,4 +1,7 @@
+#include "RasterIO.h"
+#include <memory>
 #include "Forest.h"
+#include "TextUtils.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -6,6 +9,13 @@
 
 #include "libs/gdal_include/gdal_priv.h"
 #include "libs/gdal_include/ogr_spatialref.h"
+
+void Forest::setName(const std::string& n)
+{
+    const auto plainName = text_utils::withoutDiacritics(n);
+    name = n;
+    nameWithoutDiacritics = plainName;
+}
 
 void Forest::findBoundingBox()
 {
@@ -32,11 +42,13 @@ void Forest::findBoundingBox()
             maxY = std::max(maxY, p.Y);
         }
     }
+    // Uloz presne hranice pred rozsirenim bounding boxu.
     rawMinX = minX;
     rawMinY = minY;
     rawMaxX = maxX;
     rawMaxY = maxY;
 
+    // Zaokruhli smerom von na nasobky 10 m a pridaj pas so sirkou padding * pixelSize.
     minX = std::floor(minX / 10.0) * 10.0 -pad;
     minY = std::floor(minY / 10.0) * 10.0-pad;
     maxX = std::ceil(maxX / 10.0) * 10.0 +pad;
@@ -46,6 +58,7 @@ void Forest::findBoundingBox()
 void Forest::findTiles()
 {
     tiles.clear();
+    // floor urci lavy dolny roh dlazdice aj pri zapornych suradniciach.
     int minTileX = static_cast<int>(std::floor(minX / 2000) * 2000);
     int maxTileX = static_cast<int>(std::floor(maxX / 2000) * 2000);
     int minTileY = static_cast<int>(std::floor(minY / 2000) * 2000);
@@ -55,9 +68,10 @@ void Forest::findTiles()
     {
         for (int ty = minTileY; ty <= maxTileY; ty += 2000)
         {
+            // Pre kazdu dlazdicu pridaj tri varianty; samotny nazov lokality sa opakuje.
             tiles.push_back("tile_" + std::to_string(tx) + "_" + std::to_string(ty) + ".laz");
-            tiles.push_back("tile_" + std::to_string(tx) + "_" + std::to_string(ty)  +"_" + name + ".laz");
-            tiles.push_back(name + ".laz");
+            tiles.push_back("tile_" + std::to_string(tx) + "_" + std::to_string(ty)  +"_" + nameWithoutDiacritics + ".laz");
+            tiles.push_back(nameWithoutDiacritics + ".laz");
         }
     }
 }
@@ -82,6 +96,7 @@ void Forest::calculateForestArea()
                 double area = std::abs(pg.inners[j].getcurveArea());
                 if (area < 1)
                 {
+                    // Po vymazani posun index spat, aby sa nepreskocila nasledujuca diera.
                     pg.inners.erase(pg.inners.begin() + j);
                     num_inners--;
                     j--;
@@ -100,9 +115,7 @@ void Forest::calculateForestArea()
 void Forest::rasteriseCurve(Curve& curve, std::vector<std::vector<bool>>& mask, double gridX0, double gridY0, int nx,
     int ny, double pixelSize, bool fillValue)
 {
-    //chcem to mat vseobecne, lebo rovnako musim riesit outer aj inner boundary - pre outer vyplnam true (je vnutri), pre inner vyplnam false (je vonku)
-    //je to ale vlastne iba scan-line algoritmus
-    //curve= krivka, ktoru riesim, mask= kam zapisujem, gridX0 a gridY0= pociatocna suradnica (vlavo dole), nx a ny=pocet pixelov, ktore riesim, fillValue= ci to budem vyplnat true alebo false
+    // Scan-line algoritmus: priesecniky hran s riadkom zorad a vyplnaj po dvojiciach.
 
     auto& pts = curve.getPoints();
     int n = pts.size();
@@ -119,6 +132,7 @@ void Forest::rasteriseCurve(Curve& curve, std::vector<std::vector<bool>>& mask, 
             Point& a = pts[i];
             Point& b = pts[i + 1];
 
+            // Ostre nerovnosti vynechaju vodorovne hrany aj vrcholy presne na riadku.
             if ((a.Y > y && b.Y < y) || (a.Y < y && b.Y > y))
             {
                 //upravenie parametrizacie usecky, hladam t, pre ktore je priesecnik, potom že ake je to x
@@ -147,6 +161,7 @@ void Forest::rasteriseCurve(Curve& curve, std::vector<std::vector<bool>>& mask, 
             int iStart = std::ceil((x0 - gridX0) / pixelSize - 0.5);
             int iEnd = std::floor((x1 - gridX0) / pixelSize - 0.5);
 
+            // Orez rozsah stlpcov na rozmery masky.
             iStart = std::max(iStart, 0);
             iEnd = std::min(iEnd, nx - 1);
 
@@ -174,10 +189,10 @@ void Forest::createMask()
     {
         ForestPolygon& pg = polygons[i];
 
-        //outer je vzdy len jedna krivka:
+        // Najprv vypln vonkajsiu hranicu aktualneho polygonu.
         rasteriseCurve(pg.outer, mask, gridX0, gridY0, nx, ny, pixelSize, true);
 
-        //inner hranic cisto teoreticky moze byt aj viac, aj ked myslim, ze nie su, ak dam prec tie male smeti
+        // Potom vymaz vsetky jeho diery.
         for (int inner = 0; inner < pg.inners.size(); inner++)
         {
             Curve& innerCurve = pg.inners[inner];
@@ -216,34 +231,28 @@ void Forest::exportMaskToGeoTIFF(const std::string& filename)
     }
 
 
+    std::unique_ptr<GDALDataset, decltype(&GDALClose)> datasetGuard(ds, GDALClose);
+
+    // Sever je hore: zaciatok je v lavom hornom rohu a krok Y je zaporny.
     double geoTransform[6] = { 0 };
-    geoTransform[0] = minX;       // top-left X
-    geoTransform[1] = static_cast<double>(pixelSize);  // pixel width
+    geoTransform[0] = minX;       // X laveho horneho rohu
+    geoTransform[1] = static_cast<double>(pixelSize);  // sirka pixela
     geoTransform[2] = 0.0;
-    geoTransform[3] = maxY;       // top-left Y
+    geoTransform[3] = maxY;       // Y laveho horneho rohu
     geoTransform[4] = 0.0;
-    geoTransform[5] = static_cast<double>( - pixelSize); // negative to flip Y
+    geoTransform[5] = static_cast<double>( - pixelSize); // riadky pribudaju smerom nadol
 
     if (ds->SetGeoTransform(geoTransform) != CE_None) {
-        std::cerr << "SetGeoTransform failed\n";
+        throw std::runtime_error("Cannot write mask grid: " + filename);
     }
 
-    OGRSpatialReference srs;
-    srs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    if (srs.importFromEPSG(8353) != OGRERR_NONE)
-    {
-        std::cerr << "Failed to import crs\n";
-    }
-    srs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    char* wkt = nullptr;
-    srs.exportToWkt(&wkt);
-    if (ds->SetProjection(wkt) != CE_None)
-        std::cerr << "SetProjection failed\n";
-    CPLFree(wkt);
+    if (!crsWkt.empty() && ds->SetProjection(crsWkt.c_str()) != CE_None)
+        throw std::runtime_error("Cannot write mask CRS: " + filename);
 
     GDALRasterBand* band = ds->GetRasterBand(1);
     std::vector<uint8_t> row(nx);
 
+    // Boolovsku masku preved na bajty 0/1 a zapisuj po riadkoch.
     for (int y = 0; y < ny; ++y)
     {
         for (int x = 0; x < nx; ++x)
@@ -260,5 +269,6 @@ void Forest::exportMaskToGeoTIFF(const std::string& filename)
         );
     }
 
-    GDALClose(ds);
+    if (ds->FlushCache() != CE_None)
+        throw std::runtime_error("Cannot flush mask: " + filename);
 }

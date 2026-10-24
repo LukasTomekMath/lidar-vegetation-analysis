@@ -28,4 +28,8 @@ struct FeatureVector
 
 MetricStats computeStatsForBand(const std::vector<double>& band, Forest& forest, const RasterData& raster, int bandIdx);
 FeatureVector computeFeatureVector(const RasterData& raster, Forest& forest);
+
+// Vytvori alebo prepise CSV a zapise hlavicku; riadky sa potom pridavaju cez exportFeatureVectorCSV.
+// Pri neuspesnom otvoreni suboru vyhodi vynimku.
+void initializeFeatureVectorCSV(const std::string& csvPath);
 void exportFeatureVectorCSV(const FeatureVector& fv, const std::string& csvPath);

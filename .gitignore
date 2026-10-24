@@ -3,6 +3,7 @@
 # ... but these file types
 !.gitignore
 !src
+!/src/apps/
 !python
 !mathematica
 !matlab
@@ -20,6 +21,7 @@
 !*.csv
 !*.html
 !CmakeLists.txt
+!/src/apps/README.md
 #!*.zip
 #!libs.zip
 #!libsOLD.zip

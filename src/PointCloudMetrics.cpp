@@ -1,4 +1,8 @@
 #include "PointCloudMetrics.h"
+#include "MetricDefinitions.h"
+#include "RasterIO.h"
+#include <memory>
+#include <stdexcept>
 
 DataHandler::DataHandler()
 {
@@ -12,7 +16,7 @@ DataHandler::~DataHandler()
 
 	for (size_t i = 0; i < m_metrics.size(); i++)
 	{
-		delete m_metrics[i];
+		delete[] m_metrics[i];
 	}
 }
 
@@ -73,7 +77,7 @@ bool DataHandler::performCalculation()
 	m_output.metricsTime = std::chrono::duration_cast<std::chrono::milliseconds>(metrics_end - metrics_start).count() / 1000.0;
 
 	auto export_start = std::chrono::high_resolution_clock::now();
-	exportMetrics(m_areaName);
+	exportMetrics();
 	auto export_end = std::chrono::high_resolution_clock::now();
 	m_output.exportTime = std::chrono::duration_cast<std::chrono::milliseconds>(export_end - export_start).count() / 1000.0;
 
@@ -114,6 +118,19 @@ bool DataHandler::readLazFile()
 	{
 		std::cout << "Failed to open laz file" << m_areaInfo.lazFileName << std::endl;
 		return false;
+	}
+
+	try
+	{
+		m_sourceCRS = spatial::readLasCRS(reader->header, m_areaInfo.lazFileName);
+		if (m_sourceCRS.IsEmpty())
+			std::cerr << "Warning: LAS/LAZ has no CRS; TIFF will have no CRS: " << m_areaInfo.lazFileName << "\n";
+	}
+	catch (...)
+	{
+		reader->close();
+		delete reader;
+		throw;
 	}
 
 	//printf("xBounds: [%.2lf, %.2lf]\n", reader->get_min_x(), reader->get_max_x());
@@ -191,117 +208,6 @@ bool DataHandler::readLazFile()
 
 	return true;
 }
-
-/*
-// ? TODO: toto by sa mozno mohlo pouzit namiesto upravovania `readLazFiles` metody, kedze by to mal byt rovnaky kod
-// bool DataHandler::readLasFile(std::string lasFileName)
-// {
-// 	LASreadOpener lasReadOpener;
-// 	LASreader* reader = nullptr;
-// 	int nPointsInMesh = 0;
-
-// 	int nPixels = m_areaInfo.width_n * m_areaInfo.height_n;
-// 	m_meshPixelsRedistributed.resize(nPixels, PixelPoints());
-// 	int desiredPixelSize = m_areaInfo.desiredPixelSize;
-
-// 	auto start = std::chrono::high_resolution_clock::now();
-
-// 	lasReadOpener.add_file_name(lasFileName.c_str());
-
-// 	if (!lasReadOpener.active())
-// 	{
-// 		std::cout << "Las file " << lasFileName << "not active\n";
-// 		return false;
-// 	}
-
-// 	std::cout << "reading file " << lasFileName << "\n";
-
-// 	reader = lasReadOpener.open();
-// 	if (reader == nullptr)
-// 	{
-// 		std::cout << "Failed to open las file\n";
-// 		return false;
-// 	}
-
-// 	//printf("xBounds: [%.2lf, %.2lf]\n", reader->get_min_x(), reader->get_max_x());
-// 	//printf("yBounds: [%.2lf, %.2lf]\n", reader->get_min_y(), reader->get_max_y());
-// 	//printf("zBounds: [%.2lf, %.2lf]\n", reader->get_min_z(), reader->get_max_z());
-// 	//std::cout << "nPoints: " << reader->npoints << "\n";
-
-// 	double xLeft = m_areaInfo.xLeft;
-// 	double yLeft = m_areaInfo.yLeft;
-// 	double ptX = 0, ptY = 0, ptZ = 0;
-// 	int ptClass = 0;
-// 	double deltaX = 0, deltaY = 0;
-// 	int i = -1; // row index
-// 	int j = -1; // column index
-// 	int pixelIdx = -1;
-// 	int nPoints = 0;
-
-// 	//printf("Scale factors: [%.6lf, %.6lf, %.6lf]\n", reader->header.x_scale_factor, reader->header.y_scale_factor, reader->header.z_scale_factor);
-// 	while (reader->read_point())
-// 	{
-// 		nPoints++;
-// 		ptX = reader->point.get_x();
-// 		ptY = reader->point.get_y();
-// 		ptZ = reader->point.get_z();
-// 		ptClass = reader->point.get_classification();
-
-// 		// check if point is from class 2, 3, 4 or 5 (ground or vegetation)
-// 		if (ptClass < GROUND || ptClass > VEG_HIGH)
-// 			continue;
-
-// 		// std::cout << "point class: " << ptClass << std::endl;
-
-// 		deltaX = ptX - xLeft;
-// 		deltaY = ptY - yLeft;
-
-// 		i = static_cast<int>(std::floor(std::abs(deltaY)));
-// 		j = static_cast<int>(std::floor(std::abs(deltaX)));
-
-// 		// check if point is inside mesh
-// 		if (deltaY > 0.0 || i >= m_areaInfo.height_n - 1)
-// 			continue;
-
-// 		if (deltaX < 0.0 || j >= m_areaInfo.width_n - 1)
-// 			continue;
-
-// 		// save point to the corresponding mesh pixel
-// 		pixelIdx = i * m_areaInfo.width + j;
-// 		//std::cout << "idx: " << pixelIdx << "\n";
-
-// 		if (ptClass == GROUND)
-// 		{
-// 			m_meshPixelsRedistributed[pixelIdx].groundPts.xCoords.emplace_back(ptX);
-// 			m_meshPixelsRedistributed[pixelIdx].groundPts.yCoords.emplace_back(ptY);
-// 			m_meshPixelsRedistributed[pixelIdx].groundPts.zCoords.emplace_back(ptZ);
-
-// 			nPointsInMesh++;
-
-// 			continue;
-// 		}
-
-// 		m_meshPixelsRedistributed[pixelIdx].vegetationPts.xCoords.emplace_back(ptX);
-// 		m_meshPixelsRedistributed[pixelIdx].vegetationPts.yCoords.emplace_back(ptY);
-// 		m_meshPixelsRedistributed[pixelIdx].vegetationPts.zCoords.emplace_back(ptZ);
-// 		m_meshPixelsRedistributed[pixelIdx].vegetationPts.ptClass.emplace_back(ptClass);
-
-// 		nPointsInMesh++;
-// 	}
-
-// 	reader->close();
-// 	delete reader;
-
-// 	std::cout << "nPointsInMesh: " << nPointsInMesh << ", total points read: " << nPoints << std::endl;
-
-// 	auto end = std::chrono::high_resolution_clock::now();
-// 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-// 	printf("\nReading LAS file: %.4lf s\n", (double)duration.count() / 1000.0);
-
-// 	return true;
-// }
-*/
 
 void DataHandler::filterPointsMAD()
 {
@@ -717,8 +623,8 @@ void DataHandler::computeMetrics()
 	//std::cout << "Compute metrics started...\n";
 	auto start = std::chrono::high_resolution_clock::now();
 
-	m_metrics.resize(nMetrics);
-	for (int i = 0; i < nMetrics; i++)
+	m_metrics.resize(metrics::Count);
+	for (int i = 0; i < metrics::Count; i++)
 	{
 		m_metrics[i] = new double[nPixels] {};
 	}
@@ -737,7 +643,7 @@ void DataHandler::computeMetrics()
 		std::vector<double> emptyZ = { 0.0 };
 
 		// set default metrics value to NAN
-		for (m = 0; m < nMetrics; m++)
+		for (m = 0; m < metrics::Count; m++)
 			m_metrics[m][i] = NO_DATA_VALUE;
 		//std::cout << "nans assigned\n";
 
@@ -755,90 +661,90 @@ void DataHandler::computeMetrics()
 		if (nVegetationPts == 0)
 			zValues = &emptyZ;
 
-		m_metrics[DTM][i] = m_DTM_final[i];
+		m_metrics[metrics::DTM][i] = m_DTM_final[i];
 		// ECOSYSTEM HEIGHT METRICS
-		m_metrics[Hmax][i] = *std::max_element(zValues->begin(), zValues->end());
+		m_metrics[metrics::Hmax][i] = *std::max_element(zValues->begin(), zValues->end());
 
 		meanZ = StatFunctions::mean(*zValues);
-		m_metrics[Hmean][i] = meanZ;
+		m_metrics[metrics::Hmean][i] = meanZ;
 
-		//m_metrics[Hmedian][i] = StatFunctions::percentile(*zValues, 50.0);
+		//m_metrics[metrics::Hmedian][i] = StatFunctions::percentile(*zValues, 50.0);
 
-		//m_metrics[Hp25][i] = StatFunctions::percentile(*zValues, 25.0);
+		//m_metrics[metrics::Hp25][i] = StatFunctions::percentile(*zValues, 25.0);
 
-		//m_metrics[Hp75][i] = StatFunctions::percentile(*zValues, 75.0);
+		//m_metrics[metrics::Hp75][i] = StatFunctions::percentile(*zValues, 75.0);
 
-		//m_metrics[Hp95][i] = StatFunctions::percentile(*zValues, 95.0);
+		//m_metrics[metrics::Hp95][i] = StatFunctions::percentile(*zValues, 95.0);
 
 		std::vector<double> sortedZ = *zValues;
 		std::sort(sortedZ.begin(), sortedZ.end());
 
-		m_metrics[Hmedian][i] = StatFunctions::percentile_sorted(sortedZ, 50.0);
-		m_metrics[Hp25][i] = StatFunctions::percentile_sorted(sortedZ, 25.0);
-		m_metrics[Hp75][i] = StatFunctions::percentile_sorted(sortedZ, 75.0);
-		m_metrics[Hp95][i] = StatFunctions::percentile_sorted(sortedZ, 95.0);
+		m_metrics[metrics::Hmedian][i] = StatFunctions::percentile_sorted(sortedZ, 50.0);
+		m_metrics[metrics::Hp25][i] = StatFunctions::percentile_sorted(sortedZ, 25.0);
+		m_metrics[metrics::Hp75][i] = StatFunctions::percentile_sorted(sortedZ, 75.0);
+		m_metrics[metrics::Hp95][i] = StatFunctions::percentile_sorted(sortedZ, 95.0);
 
-		m_metrics[PPR][i] = static_cast<double>(nGroundPts) / nAllPts;
+		m_metrics[metrics::PPR][i] = static_cast<double>(nGroundPts) / nAllPts;
 
 		temp = StatFunctions::pointsAbove(*zValues, meanZ);
-		m_metrics[DAM_z][i] = (nVegetationPts == 0) ? 0.0 : (temp / nVegetationPts);
+		m_metrics[metrics::DAM_z][i] = (nVegetationPts == 0) ? 0.0 : (temp / nVegetationPts);
 
 		//std::cout << "Metrics 1/3 done\n";
 
 		// ECOSYSTEM COVER METRICS
 		temp = StatFunctions::pointsBelow(*zValues, 1.0);
-		m_metrics[BR_below_1][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
+		m_metrics[metrics::BR_below_1][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
 
 		temp = StatFunctions::pointsBetween(*zValues, 1.0, 2.0);
-		m_metrics[BR_1_2][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
+		m_metrics[metrics::BR_1_2][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
 		
 		temp = StatFunctions::pointsBetween(*zValues, 2.0, 3.0);
-		m_metrics[BR_2_3][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
+		m_metrics[metrics::BR_2_3][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
 		
 		temp = StatFunctions::pointsAbove(*zValues, 3.0);
-		m_metrics[BR_above_3][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
+		m_metrics[metrics::BR_above_3][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
 		
 		temp = StatFunctions::pointsBetween(*zValues, 3.0, 4.0);
-		m_metrics[BR_3_4][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
+		m_metrics[metrics::BR_3_4][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
 		
 		temp = StatFunctions::pointsBetween(*zValues, 4.0, 5.0);
-		m_metrics[BR_4_5][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
+		m_metrics[metrics::BR_4_5][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
 		
 		temp = StatFunctions::pointsBelow(*zValues, 5.0);
-		m_metrics[BR_below_5][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
+		m_metrics[metrics::BR_below_5][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
 		
 		temp = StatFunctions::pointsBetween(*zValues, 5.0, 20.0);
-		m_metrics[BR_5_20][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
+		m_metrics[metrics::BR_5_20][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
 		
 		temp = StatFunctions::pointsAbove(*zValues, 20.0);
-		m_metrics[BR_above_20][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
+		m_metrics[metrics::BR_above_20][i] = (nVegetationPts == 0) ? 0.0 : temp / nVegetationPts;
 		
 		//std::cout << "Metrics 2/3 done\n";
 
 		// ECOSYSTEM STRUCTURAL COMPLEXITY METRICS
-		m_metrics[Hkurt][i] = StatFunctions::kurtosis(*zValues, meanZ);
+		m_metrics[metrics::Hkurt][i] = StatFunctions::kurtosis(*zValues, meanZ);
 
-		m_metrics[Hskew][i] = StatFunctions::skewness(*zValues, meanZ);
+		m_metrics[metrics::Hskew][i] = StatFunctions::skewness(*zValues, meanZ);
 
 		varZ = StatFunctions::variance(*zValues, meanZ);
-		m_metrics[Hvar][i] = varZ;
+		m_metrics[metrics::Hvar][i] = varZ;
 
 		stdZ = std::sqrt(varZ);
-		m_metrics[Hstd][i] = stdZ;
+		m_metrics[metrics::Hstd][i] = stdZ;
 
-		m_metrics[Coeff_var_z][i] = stdZ / meanZ;
+		m_metrics[metrics::Coeff_var_z][i] = stdZ / meanZ;
 
-		m_metrics[Shannon][i] = StatFunctions::shannonIndex(*zValues);
+		m_metrics[metrics::Shannon][i] = StatFunctions::shannonIndex(*zValues);
 
 		double zMin = *std::min_element(zValues->begin(), zValues->end());
-		double zMax = m_metrics[Hmax][i]; 
+		double zMax = m_metrics[metrics::Hmax][i]; 
 
 		if (zMax > zMin) 
 		{
-			m_metrics[CRR][i] = (meanZ - zMin) / (zMax - zMin);
+			m_metrics[metrics::CRR][i] = (meanZ - zMin) / (zMax - zMin);
 		}
 		else {
-			m_metrics[CRR][i] = 0.0; 
+			m_metrics[metrics::CRR][i] = 0.0; 
 		}
 
 
@@ -855,10 +761,10 @@ void DataHandler::computeMetrics()
 				double p = static_cast<double>(bins[b]) / nVegetationPts;
 				if (p > 0) vciShannon -= p * std::log(p);
 			}
-			m_metrics[VCI][i] = vciShannon / std::log(10.0); 
+			m_metrics[metrics::VCI][i] = vciShannon / std::log(10.0); 
 		}
 		else {
-			m_metrics[VCI][i] = 0.0;
+			m_metrics[metrics::VCI][i] = 0.0;
 		}
 
 		//std::cout << "Metrics 3/3 done\n";
@@ -877,11 +783,11 @@ void DataHandler::computeMetrics()
 		for (int j = 0; j < m_areaInfo.width; j++)
 		{
 			int idx = i * m_areaInfo.width + j;
-			double hC = m_metrics[Hmax][idx];	//vyska stredoveho pixela, pre ktory ratam
+			double hC = m_metrics[metrics::Hmax][idx];	//vyska stredoveho pixela, pre ktory ratam
 
 			if (hC <= 0)	//toto by sa stat nemalo, but you never know
 			{
-				m_metrics[Rumple][idx] = 1.0;
+				m_metrics[metrics::Rumple][idx] = 1.0;
 				continue;
 			}
 
@@ -912,8 +818,8 @@ void DataHandler::computeMetrics()
 				int idx2 = i2 * m_areaInfo.width + j2;
 
 				//najvyssia vyska v susedoch, od nich to budem pocitat
-				double h1 = m_metrics[Hmax][idx1];
-				double h2 = m_metrics[Hmax][idx2];
+				double h1 = m_metrics[metrics::Hmax][idx1];
+				double h2 = m_metrics[metrics::Hmax][idx2];
 
 				if (h1 <= 0 || h2 <= 0)//ani toto by sa nemalo stat, but you never know  
 					continue;
@@ -942,9 +848,9 @@ void DataHandler::computeMetrics()
 			}
 
 			if (validTriangles > 0 && totalArea2D > 0)
-				m_metrics[Rumple][idx] = totalArea3D / totalArea2D; 
+				m_metrics[metrics::Rumple][idx] = totalArea3D / totalArea2D; 
 			else
-				m_metrics[Rumple][idx] = 1.0;
+				m_metrics[metrics::Rumple][idx] = 1.0;
 		}
 	}
 
@@ -954,7 +860,21 @@ void DataHandler::computeMetrics()
 	//printf("done: %.4lf s\n", (double)duration.count() / 1000.0);
 }
 
-void DataHandler::exportMetrics(std::string fileName)
+std::string DataHandler::outputFileName() const
+{
+	std::string name = m_areaName;
+	if (!m_forestName.empty())
+	{
+		const std::string suffix = "_" + m_forestName;
+		// Nazov lokality pridaj iba vtedy, ak ho vstup uz nema na konci.
+		if (name.size() < suffix.size() ||
+			name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
+			name += suffix;
+	}
+	return name + ".tif";
+}
+
+void DataHandler::exportMetrics()
 {
 	//time_t now = time(0);
 	//tm* ltm = localtime(&now);
@@ -968,21 +888,13 @@ void DataHandler::exportMetrics(std::string fileName)
 	// fileName = std::string(".\\") + fileName.append(".tif");
 	// fileName += std::string("_h=") + std::to_string(m_areaInfo.desiredPixelSize) + std::string("m");
 
-	std::string basename = "../../../raster_metrics/";
+	std::string basename = (std::filesystem::path(m_outputDirectory) / "").string();
 
 	if (!std::filesystem::exists(basename)) {
 		std::filesystem::create_directories(basename);
 	}
 
-	if (m_forestName == "")
-	{
-		fileName = basename + fileName +".tif";
-	}
-	else
-	{
-		//fileName = basename + fileName + ".tif";
-		fileName = basename + fileName + "_" + m_forestName + ".tif";
-	}
+	std::string fileName = (std::filesystem::path(m_outputDirectory) / outputFileName()).string();
 	
 
 	//std::string basePath = "../../../pralesy_metriky/";
@@ -1006,12 +918,16 @@ void DataHandler::exportMetrics(std::string fileName)
 
 	GDALDriver* poDriver;
 	poDriver = GetGDALDriverManager()->GetDriverByName("GTiff");
+	if (!poDriver) throw std::runtime_error("GTiff driver is unavailable");
 
 	//std::cout << "Driver registered" << std::endl;
 
 	GDALDataset* poDstDS = nullptr;
 	char** papszOptions = NULL;
 	poDstDS = poDriver->Create(fileName.c_str(), m_areaInfo.width, m_areaInfo.height, m_metrics.size(), GDT_Float64, papszOptions);
+	if (!poDstDS) throw std::runtime_error("Cannot create raster: " + fileName);
+
+	std::unique_ptr<GDALDataset, decltype(&GDALClose)> datasetGuard(poDstDS, GDALClose);
 
 	//std::cout << "Dataset created" << std::endl;
 
@@ -1022,19 +938,14 @@ void DataHandler::exportMetrics(std::string fileName)
 		                          m_areaInfo.yLeft,
 		                          0.0,
 		                         static_cast<double>(- m_areaInfo.desiredPixelSize)};
-	poDstDS->SetGeoTransform(adfGeoTransform);
+	if (poDstDS->SetGeoTransform(adfGeoTransform) != CE_None)
+		throw std::runtime_error("Cannot write raster grid: " + fileName);
 
 	//std::cout << "Set geotransform" << std::endl;
 
-	// Spatial reference system for tif
-	OGRSpatialReference oSRS;
-	char* pszSRS_WKT = NULL;
-	oSRS.importFromProj4("+proj=krovak +lat_0=49.5 +lon_0=24.8333333333333 +alpha=30.2881397527778 +k=0.9999 +x_0=0 +y_0=0 +ellps=bessel +units=m +no_defs +type=crs");
-	
-	
-	oSRS.exportToWkt(&pszSRS_WKT);
-	poDstDS->SetProjection(pszSRS_WKT);
-	CPLFree(pszSRS_WKT);
+	// Prenes CRS zo vstupu bez reprojekcie alebo nahradenia pevnym EPSG.
+	if (!m_sourceCRS.IsEmpty() && poDstDS->SetSpatialRef(&m_sourceCRS) != CE_None)
+		throw std::runtime_error("Cannot write raster CRS: " + fileName);
 
 	//std::cout << "Set spatial reference" << std::endl;
 
@@ -1044,7 +955,7 @@ void DataHandler::exportMetrics(std::string fileName)
 	for (int i = 0; i < m_metrics.size(); i++)
 	{
 		poBand = poDstDS->GetRasterBand(i + 1);
-		poBand->SetDescription(m_bandNames[i].c_str());
+		poBand->SetDescription(metrics::names[i]);
 		poBand->SetColorInterpretation(GCI_GrayIndex);
 		poBand->SetNoDataValue(NO_DATA_VALUE);
 		poBand->RasterIO(GF_Write, 0, 0, m_areaInfo.width, m_areaInfo.height,
@@ -1054,7 +965,8 @@ void DataHandler::exportMetrics(std::string fileName)
 	//std::cout << "Data written to file" << std::endl;
 
 	// Close file
-	GDALClose((GDALDatasetH)poDstDS);
+	if (poDstDS->FlushCache() != CE_None)
+		throw std::runtime_error("Cannot flush raster: " + fileName);
 
 	//std::cout << "Export done" << std::endl;
 }

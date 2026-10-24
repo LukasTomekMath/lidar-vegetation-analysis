@@ -36,35 +36,6 @@
 #define VEG_MEDIUM 4
 #define VEG_HIGH 5
 
-#define Hmax 0
-#define Hmean 1
-#define Hmedian 2
-#define Hp25 3
-#define Hp75 4
-#define Hp95 5
-#define PPR 6
-#define DAM_z 7
-#define BR_below_1 8
-#define BR_1_2 9
-#define BR_2_3 10
-#define BR_above_3 11
-#define BR_3_4 12
-#define BR_4_5 13
-#define BR_below_5 14
-#define BR_5_20 15
-#define BR_above_20 16
-#define Coeff_var_z 17
-#define Hkurt 18
-#define Hskew 19
-#define Hstd 20
-#define Hvar 21
-#define Shannon 22
-#define DTM 23
-#define CRR 24 //canopy relief ratio
-#define VCI 25 //vegetation condition index
-#define Rumple 26 //rumple index
-
-#define nMetrics 27
 
 struct OutputData {
 	//casy spracovania jednotlivych ukonov
@@ -123,17 +94,19 @@ public:
 	DataHandler();
 	~DataHandler();
 
-	typedef std::vector<std::string> StringList;
 
 	void setupAreaInfo(const std::string &lazFileName, const double upperLeftX, const double upperLeftY, const double lowerRightX, const double lowerRightY, const int pixelSize);
 	void reset();
 	bool performCalculation();
 	void setAreaName(const std::string &name) { m_areaName = name; }
+	void setOutputDirectory(const std::string& directory) { m_outputDirectory = directory; }
 	void setForestName(const std::string& name) { m_forestName = name; }//toto je na nazov lesa. v jednom tile moze byt viac lesov
 	const std::string areaName() { return m_areaName;}
+	std::string outputFileName() const;
 	const OutputData& getOutputData() { return m_output; }
 
 private:
+	OGRSpatialReference m_sourceCRS; // CRS nacitane z aktualneho LAS/LAZ.
 	OutputData m_output;
 	AreaInfo m_areaInfo;
 	std::vector<double> m_DTM_raw;	//na povodnom gride
@@ -142,15 +115,10 @@ private:
 	std::vector<PixelPoints> m_meshPixelsRedistributed;
 	std::vector<double *> m_metrics;
 	std::string m_areaName = "";
+	std::string m_outputDirectory = "raster_metrics";
 	std::string m_forestName="";
 
-	StringList m_bandNames = {"Hmax", "Hmean", "Hmedian", "Hp25", "Hp75", "Hp95", "PPR", "DAM_z", "BR_below_1", "BR_1_2", "BR_2_3", "BR_above_3", "BR_3_4", "BR_4_5", "BR_below_5", "BR_5_20", "BR_above_20", "Coeff_var_z", "Hkurt", "Hskew", "Hstd", "Hvar", "Shannon", "DTM", "CRR","VCI","Rumple"};
-
-	void readInputFile(std::string stream);
-
 	bool readLazFile();
-
-	// bool readLasFile(std::string lasFileName);
 
 	void filterPointsMAD();
 
@@ -166,7 +134,7 @@ private:
 
 	void computeMetrics();
 
-	void exportMetrics(std::string fileName);
+	void exportMetrics();
 
 	bool exportLAS(std::string fileName);
 
