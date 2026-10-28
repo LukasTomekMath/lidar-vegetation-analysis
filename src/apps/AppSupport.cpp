@@ -18,9 +18,12 @@ void printUsage(const std::string &app)
     if (app == "lidar_metrics")
         std::cout << " --laz-dir DIR [--kml-dir DIR] --output-dir DIR [--threads N]\n"
                   << "Compute 2 m metric rasters for tiles or forest bounding boxes.\n";
-    else if (app == "segment_features")
-        std::cout << " --kml-dir DIR --tif-dir DIR --output FILE.csv\n"
+    else if (app == "segment_features_laz")
+        std::cout << " --kml-dir DIR --tif-dir-laz DIR --output-laz FILE.csv\n"
                   << "Aggregate 27-band metric rasters inside segment masks.\n";
+    else if (app == "segment_features_sat")
+        std::cout << " --shp-dir DIR --tif-dir-sat DIR --output-sat FILE.csv\n"
+                  << "Aggregate sattelite band metric rasters inside segment masks.\n";
     else if (app == "crop_laz")
         std::cout << " --kml-dir DIR --laz-dir DIR --output-dir DIR [--threads N]\n"
                   << "Crop LAZ files to forest bounding boxes using libs/las2las64.exe. Run from the project root.\n";
@@ -43,11 +46,14 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
         }
     }
     // Kazdy program prijima iba svoje podporovane prepinace.
+    std::cout << std::endl << app << std::endl;
     std::set<std::string> allowed;
     if (app == "lidar_metrics")
         allowed = {"--laz-dir", "--kml-dir", "--output-dir", "--threads"};
-    else if (app == "segment_features")
-        allowed = {"--kml-dir", "--tif-dir", "--output"};
+    else if (app == "segment_features_laz")
+        allowed = {"--kml-dir", "--tif-dir-laz", "--output-laz"};
+    else if (app == "segment_features_sat")
+        allowed = {"--shp-dir", "--tif-dir-sat", "--output-sat"};
     else if (app == "crop_laz")
         allowed = {"--kml-dir", "--laz-dir", "--output-dir", "--threads"};
     else
@@ -72,18 +78,38 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
             throw std::runtime_error("Required option: " + key);
         return fs::absolute(values.at(key)).lexically_normal().string();
     };
+    
     // KML je volitelne iba pre lidar_metrics; jeho pritomnost vybera spracovanie lokalit.
-    if (app != "segment_features")
+    const bool isLazSeg = (app == "segment_features_laz");
+    const bool isSatSeg = (app == "segment_features_sat");
+    const bool isLidar  = (app == "lidar_metrics");
+
+    // --laz-dir: needed by lidar_metrics, crop_laz and the default (tiles) app
+    if (!isLazSeg && !isSatSeg)
         result.lazDir = required("--laz-dir");
-    if (app != "lidar_metrics" || values.count("--kml-dir"))
+
+    // --kml-dir: optional for lidar_metrics, required for the others except sat
+    if (isLazSeg || (!isLidar && !isSatSeg) || (isLidar && values.count("--kml-dir")))
         result.kmlDir = required("--kml-dir");
-    if (app == "segment_features")
+
+    if (isSatSeg)
+        result.shpDir = required("--shp-dir");
+
+    if (isLazSeg)
     {
-        result.tifDir = required("--tif-dir");
-        result.output = required("--output");
+        result.tifDirLaz = required("--tif-dir-laz");
+        result.outputLaz = required("--output-laz");
+    }
+    else if (isSatSeg)
+    {
+        result.tifDirSat = required("--tif-dir-sat");
+        result.outputSat = required("--output-sat");
     }
     else
+    {
         result.outputDir = required("--output-dir");
+    }
+
     // Vyziadany pocet vlakien musi byt kladne cele cislo bez dalsich znakov.
     if (values.count("--threads"))
     {
@@ -94,7 +120,7 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
             throw std::runtime_error("--threads must be a positive integer");
     }
     // Vstupne priecinky musia existovat; chybajuce vystupne priecinky vytvor.
-    for (const auto &dir : {result.lazDir, result.kmlDir, result.tifDir})
+    for (const auto &dir : {result.lazDir, result.kmlDir, result.tifDirLaz, result.shpDir, result.tifDirSat})
         if (!dir.empty() && !fs::is_directory(dir))
             throw std::runtime_error("Input directory does not exist: " + dir);
     if (!result.outputDir.empty())
@@ -104,8 +130,10 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
             throw std::runtime_error("Output directory must differ from LAZ input directory");
         fs::create_directories(result.outputDir);
     }
-    if (!result.output.empty())
-        fs::create_directories(fs::path(result.output).parent_path());
+
+    for(const auto &dir : {result.outputLaz, result.outputSat})
+        if (!dir.empty())
+            fs::create_directories(fs::path(dir).parent_path());
     return result;
 }
 

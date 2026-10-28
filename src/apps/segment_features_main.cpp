@@ -2,14 +2,16 @@
 #include <exception>
 #include <iostream>
 
+// TODO: make it working for sat aswell
+
 int main(int argc, char **argv)
 {
     try
     {
-        const auto options = parseOptions(argc, argv, "segment_features");
+        const auto options = parseOptions(argc, argv, "segment_features_laz");
         if (options.help)
         {
-            printUsage("segment_features");
+            printUsage("segment_features_laz");
             return 0;
         }
         initializeGdal();
@@ -18,7 +20,7 @@ int main(int argc, char **argv)
     catch (const std::exception &error)
     {
         std::cerr << "Error: " << error.what() << "\n";
-        printUsage("segment_features");
+        printUsage("segment_features_laz");
         return 1;
     }
 }

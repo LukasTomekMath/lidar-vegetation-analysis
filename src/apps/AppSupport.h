@@ -7,11 +7,14 @@
 struct AppOptions
 {
     std::string lazDir;
+    std::string shpDir;
     std::string kmlDir;
-    std::string tifDir;
+    std::string tifDirSat;
+    std::string tifDirLaz;
     // Priecinok vystupov; segment_features namiesto neho pouziva output (cestu k CSV).
     std::string outputDir;
-    std::string output;
+    std::string outputLaz;
+    std::string outputSat;
     // Nula ponecha predvoleny pocet vlakien konkretneho rezimu.
     int threads = 0;
     bool help = false;

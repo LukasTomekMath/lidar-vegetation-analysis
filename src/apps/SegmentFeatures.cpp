@@ -12,14 +12,8 @@
 
 namespace fs = std::filesystem;
 
-int runSegmentFeatures(const AppOptions &options)
-{
-    // This aggregation loop is sequential.
-    GDALAllRegister();
-
-    std::string kmlDir = options.kmlDir;
-    std::string tifDir = options.tifDir;
-    std::cout << "Use case: Load tif files in a specified directory coresponding to kml files from a specified "
+int segmentFeaturesLaz(std::string kmlDir, std::string tifDirLaz, std::string output){
+        std::cout << "Use case: Load tif files in a specified directory coresponding to kml files from a specified "
                  "directory and calculate feature vectors."
               << std::endl;
 
@@ -33,7 +27,7 @@ int runSegmentFeatures(const AppOptions &options)
     std::vector<std::string> files;
 
     // vytvorenie vektora so subormi
-    for (const auto &entry : fs::directory_iterator(tifDir))
+    for (const auto &entry : fs::directory_iterator(tifDirLaz))
     {
         if (!entry.is_regular_file())
             continue;
@@ -45,7 +39,7 @@ int runSegmentFeatures(const AppOptions &options)
         }
     }
 
-    std::string csvFile = options.output;
+    std::string csvFile = output;
     initializeFeatureVectorCSV(csvFile);
 
     // cyklus cez tiffy jednotlivych lokalit
@@ -104,6 +98,33 @@ int runSegmentFeatures(const AppOptions &options)
             }
         }
     }
+
+    return 0;
+}
+
+int segmentFeaturesSat(std::string shpDir, std::string tifDirSat, std::string outputSat){
+    std::cout << "satellite segmenting";
+
+    return 0;
+}
+
+int runSegmentFeatures(const AppOptions &options)
+{
+    // This aggregation loop is sequential.
+    GDALAllRegister();
+
+    std::string kmlDir = options.kmlDir;
+    std::string tifDirLaz = options.tifDirLaz;
+    std::string outputLaz = options.outputLaz;
+
+    std::string shpDir = options.shpDir;
+    std::string tifDirSat = options.tifDirSat;
+    std::string outputSat = options.outputSat;
+
+    if(!tifDirLaz.empty())
+        segmentFeaturesLaz(kmlDir, tifDirLaz, outputLaz);
+    if(!tifDirSat.empty())
+        segmentFeaturesSat(shpDir, tifDirSat, outputSat);
 
     return 0;
 }
