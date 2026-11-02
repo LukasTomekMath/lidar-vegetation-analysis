@@ -56,3 +56,43 @@ inline constexpr std::array<const char*, Count> names = {
 
 // Pomocne makra neunikaju do ostatnych suborov.
 #undef VEGETATION_METRIC_LIST
+
+// ====================
+//  SENTINEL2
+// ====================
+#define SENTINEL_BANDS_10M(X) X(B02) X(B03) X(B04) X(B08)
+#define SENTINEL_BANDS_20M(X) X(B05) X(B06) X(B07) X(B8A) X(B11) X(B12) X(SCL)
+
+namespace sentinel
+{
+enum Index10 : std::size_t
+{
+#define X(name) name##_10m,
+    SENTINEL_BANDS_10M(X)
+#undef X
+    Count10
+};
+
+enum Index20 : std::size_t
+{
+#define X(name) name##_20m,
+    SENTINEL_BANDS_20M(X)
+#undef X
+    Count20 // 7, SCL is the last band (index SCL_20m)
+};
+
+inline constexpr std::array<const char *, Count10> names10 = {
+#define X(name) #name "_10m",
+    SENTINEL_BANDS_10M(X)
+#undef X
+};
+
+inline constexpr std::array<const char *, Count20> names20 = {
+#define X(name) #name "_20m",
+    SENTINEL_BANDS_20M(X)
+#undef X
+};
+}
+
+#undef SENTINEL_BANDS_10M
+#undef SENTINEL_BANDS_20M

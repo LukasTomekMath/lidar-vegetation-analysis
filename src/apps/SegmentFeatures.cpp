@@ -12,6 +12,40 @@
 
 namespace fs = std::filesystem;
 
+struct SatTilePair
+{
+    std::string path10;
+    std::string path20;
+};
+
+static std::map<std::string, SatTilePair> collectSatPairs(const std::string &dir)
+{
+    std::map<std::string, SatTilePair> pairs;
+    for (const auto &entry : fs::directory_iterator(dir))
+    {
+        if (!entry.is_regular_file())
+            continue;
+
+        auto ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        if (ext != ".tif" && ext != ".tiff")
+            continue;
+
+        const std::string stem = entry.path().stem().string();
+        auto endsWith = [&](const std::string &suffix) {
+            return stem.size() > suffix.size() &&
+                   stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0;
+        };
+
+        if (endsWith("_10m"))
+            pairs[stem.substr(0, stem.size() - 4)].path10 = entry.path().string();
+        else if (endsWith("_20m"))
+            pairs[stem.substr(0, stem.size() - 4)].path20 = entry.path().string();
+    }
+    return pairs;
+}
+
 int segmentFeaturesLaz(std::string kmlDir, std::string tifDirLaz, std::string output){
         std::cout << "Use case: Load tif files in a specified directory coresponding to kml files from a specified "
                  "directory and calculate feature vectors."
@@ -102,8 +136,86 @@ int segmentFeaturesLaz(std::string kmlDir, std::string tifDirLaz, std::string ou
     return 0;
 }
 
-int segmentFeaturesSat(std::string shpDir, std::string tifDirSat, std::string outputSat){
-    std::cout << "satellite segmenting";
+int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, const std::string outputSat){
+    std::cout << "Use case: Load Sentinel-2 tif files from a specified directory, match them to shapefile "
+                 "polygons from a specified directory and calculate feature vectors."
+              << std::endl;
+
+    if (!fs::exists(shpDir))
+    {
+        std::cerr << "Directory does not exist: " << shpDir << "\n";
+        return -1;
+    }
+    if (!fs::exists(tifDirSat))
+    {
+        std::cerr << "Directory does not exist: " << tifDirSat << "\n";
+        return -1;
+    }
+
+    // collect tif files
+    std::vector<std::string> files;
+    for (const auto &entry : fs::directory_iterator(tifDirSat))
+    {
+        if (!entry.is_regular_file())
+            continue;
+
+        auto ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        if (ext == ".tif" || ext == ".tiff")
+            files.push_back(entry.path().string());
+    }
+
+    const std::string csvFile = outputSat;
+    initializeFeatureVectorCSV(csvFile);
+
+    for (const auto &[key, pair] : collectSatPairs(tifDirSat))
+    {
+        if (pair.path10.empty() || pair.path20.empty())
+        {
+            std::cerr << "Skipping " << key << ": missing 10m or 20m file\n";
+            continue;
+        }
+
+        RasterData r10 = readGeoTiff(pair.path10);
+        RasterData r20 = readGeoTiff(pair.path20);
+
+        if (r10.nBands != static_cast<int>(sentinel::Count10))
+            throw std::runtime_error("Expected " + std::to_string(sentinel::Count10) + " bands: " + pair.path10);
+        if (r20.nBands != static_cast<int>(sentinel::Count20))
+            throw std::runtime_error("Expected " + std::to_string(sentinel::Count20) + " bands: " + pair.path20);
+
+        if (r10.crsWkt != r20.crsWkt)
+            throw std::runtime_error("10m and 20m CRS differ for " + key);
+
+        OGRSpatialReference rasterCRS;
+        if (r10.crsWkt.empty() || rasterCRS.importFromWkt(r10.crsWkt.c_str()) != OGRERR_NONE)
+            throw std::runtime_error("Unknown raster CRS: " + pair.path10);
+
+        // extent from the 10m raster; the 20m one should cover the same footprint
+        const double xMin = r10.xMin;
+        const double xMax = r10.xMin + r10.nx * r10.pixelSize;
+        const double yMax = r10.yMax;
+        const double yMin = r10.yMax - r10.ny * r10.pixelSize;
+
+        ForestManager forestManager(rasterCRS);
+        forestManager.loadDirectory(shpDir);
+
+        for (auto &forest : forestManager.getForests())
+        {
+            forest.calculateForestArea();
+            forest.findBoundingBox();
+
+            if (!(forest.getRawMinX() >= xMin && forest.getRawMaxX() <= xMax &&
+                forest.getRawMinY() >= yMin && forest.getRawMaxY() <= yMax))
+                continue;
+
+            forest.createMask();
+            //FeatureVector fv = computeFeatureVector(r10, r20, forest);
+            //exportFeatureVectorCSV(fv, csvFile);
+            std::cout << "Matched: " << forest.getName() << " in tile " << key << "\n";
+        }
+    }
 
     return 0;
 }
