@@ -76,7 +76,7 @@ Vyber si jeden z nasledujúcich návodov podľa používaného terminálu.
 Otvor CMD (`cmd.exe`) v koreni repozitára. Použi pripravené vstupy podľa
 časti Príprava. Najprv zostav programy:
 
-```bat
+```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
@@ -84,98 +84,41 @@ ctest --test-dir build -C Release --output-on-failure
 
 Kontrola lokalít a dostupnosti LAZ:
 
-```bat
-build\bin\Release\inspect_forests.exe --kml-dir ".\data\kml_lokality" --laz-dir ".\data\laz" --output-dir ".\results\kontrola"
+```powershell
+.\build\bin\Release\inspect_forests.exe --kml-dir "..\data\boundaries\kml_localities\Jednotlive_krivky" --laz-dir "..\results\laz_crops" --output-dir "..\results\inspect_forests_output"
 ```
 
 Výpočet metrík pre lokality z KML a vytvorenie mozaík:
 
-```bat
-build\bin\Release\lidar_metrics.exe --laz-dir ".\data\laz" --kml-dir ".\data\kml_lokality" --output-dir ".\results\metriky_lokality" --threads 6
+```powershell
+.\build\bin\Release\lidar_metrics.exe --laz-dir "..\results\laz_crops" --kml-dir "..\data\boundaries\kml_localities\Jednotlive_krivky" --output-dir "..\results\metrics\localities" --threads 6
 ```
 
 Alternatíva: výpočet celých dlaždíc bez KML:
 
-```bat
-build\bin\Release\lidar_metrics.exe --laz-dir ".\data\laz" --output-dir ".\results\metriky_dlazdice" --threads 5
+```powershell
+.\build\bin\Release\lidar_metrics.exe --laz-dir "..\data\lidar" --output-dir "..\results\metrics\full_tiles" --threads 5
 ```
 
 Výpočet features a uloženie do CSV:
 
-```bat
-build\bin\Release\segment_features.exe --kml-dir ".\data\kml_segmenty" --tif-dir ".\results\metriky_lokality" --output ".\results\segment_features.csv"
+```powershell
+.\build\bin\Release\segment_features.exe --kml-dir "..\data\boundaries\kml_segments" --tif-dir "..\results\metrics\localities" --output "..\results\segment_features.csv"
 ```
 
-Voliteľné vytvorenie výrezov LAZ:
-
-```bat
-build\bin\Release\crop_laz.exe --kml-dir ".\data\kml_lokality" --laz-dir ".\data\laz" --output-dir ".\results\vyrezy_laz" --threads 6
-```
-
-Nápoveda a kontrola návratového kódu:
-
-```bat
-build\bin\Release\lidar_metrics.exe --help
-echo %ERRORLEVEL%
-```
-
-Príkaz `echo %ERRORLEVEL%` spusti na samostatnom riadku hneď po programe,
-ktorého výsledok chceš overiť. Nula znamená, že program neoznámil chybu;
-nepotvrdzuje úplnosť dát.
-Všetky uvedené príkazy na spustenie EXE sú na jednom riadku. Ak ich v CMD
-rozdelíš na viac riadkov, použi na konci pokračujúceho riadka znak `^`
-bez medzier za ním.
-
-## Použitie v PowerShelli
-
-Otvor PowerShell v koreni repozitára. Postup a vstupy sú rovnaké ako pri CMD.
-
-Zostavenie a kontrola programov:
+Vytvorenie výrezov LAZ:
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
+.\build\bin\Release\crop_laz.exe --kml-dir "..\data\boundaries\kml_localities" --laz-dir "..\data\lidar" --output-dir "..\results\laz_crops"  --threads 6
 ```
 
-Kontrola lokalít a dostupnosti LAZ:
-
-```powershell
-.\build\bin\Release\inspect_forests.exe --kml-dir ".\data\kml_lokality" --laz-dir ".\data\laz" --output-dir ".\results\kontrola"
-```
-
-Výpočet metrík pre lokality z KML a vytvorenie mozaík:
-
-```powershell
-.\build\bin\Release\lidar_metrics.exe --laz-dir ".\data\laz" --kml-dir ".\data\kml_lokality" --output-dir ".\results\metriky_lokality" --threads 6
-```
-
-Alternatíva: výpočet celých dlaždíc bez KML:
-
-```powershell
-.\build\bin\Release\lidar_metrics.exe --laz-dir ".\data\laz" --output-dir ".\results\metriky_dlazdice" --threads 5
-```
-
-Agregácia finálnych mozaík pre segmenty do CSV:
-
-```powershell
-.\build\bin\Release\segment_features.exe --kml-dir ".\data\kml_segmenty" --tif-dir ".\results\metriky_lokality" --output ".\results\segment_features.csv"
-```
-
-Voliteľné vytvorenie výrezov LAZ:
-
-```powershell
-.\build\bin\Release\crop_laz.exe --kml-dir ".\data\kml_lokality" --laz-dir ".\data\laz" --output-dir ".\results\vyrezy_laz" --threads 6
-```
-
-Nápoveda a kontrola návratového kódu:
+Help:
 
 ```powershell
 .\build\bin\Release\lidar_metrics.exe --help
-$LASTEXITCODE
 ```
 
-Hodnotu `$LASTEXITCODE` skontroluj hneď po programe, ktorého výsledok chceš overiť.
+
 
 ## Výstupy a obmedzenia
 
