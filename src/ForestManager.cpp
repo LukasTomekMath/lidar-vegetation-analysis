@@ -13,17 +13,18 @@ void ForestManager::loadDirectory(const std::string& directory)
     int fileCount = 0;
     for (const auto& entry : std::filesystem::directory_iterator(directory))
     {
-        if (entry.is_regular_file() && entry.path().extension() == ".kml")
+        std::filesystem::path ext = entry.path().extension();
+        if (entry.is_regular_file() && (ext == ".kml" || ext == ".shp"))
         {
             const std::string filename = entry.path().string();
-            std::cout << "Loading KML: " << filename << std::endl;
+            std::cout << "Loading " << ext << " :" << filename << std::endl;
 
-            if (!parseKML_GDAL(filename))
+            if (!parseVector_GDAL(filename))
                 throw std::runtime_error("Failed to load KML: " + filename);
             ++fileCount;
         }
     }
-    std::cout << "Finished reading " << fileCount << " KML files.\n";
+    std::cout << "Finished reading " << fileCount << " files.\n";
     std::cout << "Total forests loaded: " << forests.size() << "\n\n";
 }
 
@@ -40,7 +41,7 @@ Forest* ForestManager::getForestByFileName(const std::string& fileName)
     return nullptr;
 }
 
-bool ForestManager::parseKML_GDAL(const std::string& filename)
+bool ForestManager::parseVector_GDAL(const std::string& filename)
 {
     GDALDataset* ds = (GDALDataset*)GDALOpenEx(
         filename.c_str(),
@@ -48,42 +49,49 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
         NULL, NULL, NULL);
     if (!ds)
     {
-        std::cout << "Failed to open dataset\n";
+        std::cout << "Failed to open dataset: " << filename << "\n";
         return false;
     }
-
     std::unique_ptr<GDALDataset, decltype(&GDALClose)> datasetGuard(ds, GDALClose);
-    OGRSpatialReference src;
+
     OGRSpatialReference dst(targetCRS);
-    if (src.importFromEPSG(4326) != OGRERR_NONE)
-    {
-        throw std::runtime_error("Cannot load EPSG:4326");
-    }
-
-    // Zachovaj poradie GIS osi: zemepisna dlzka/sirka a vystupne X/Y.
-    src.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     dst.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-    OGRCoordinateTransformation* tr = OGRCreateCoordinateTransformation(&src, &dst);
-    if (!tr)
-    {
-        throw std::runtime_error("Cannot create KML coordinate transformation");
-    }
-
-    std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>
-        transformGuard(tr, OCTDestroyCoordinateTransformation);
+    const std::string dstWkt = spatial::toWkt(dst);
 
     for (int i = 0; i < ds->GetLayerCount(); i++)
     {
         OGRLayer* layer = ds->GetLayer(i);
         layer->ResetReading();
+
+        // CRS vrstvy: SHP ho ma v .prj, KML je vzdy WGS84.
+        OGRSpatialReference src;
+        if (const OGRSpatialReference* layerSrs = layer->GetSpatialRef())
+        {
+            src = *layerSrs;
+        }
+        else
+        {
+            std::cout << "Layer has no CRS (missing .prj?), assuming EPSG:4326\n";
+            if (src.importFromEPSG(4326) != OGRERR_NONE)
+                throw std::runtime_error("Cannot load EPSG:4326");
+        }
+        src.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
+        OGRCoordinateTransformation* tr = OGRCreateCoordinateTransformation(&src, &dst);
+        if (!tr)
+            throw std::runtime_error("Cannot create coordinate transformation for " + filename);
+        std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>
+            transformGuard(tr, OCTDestroyCoordinateTransformation);
+
         OGRFeature* feature;
         while ((feature = layer->GetNextFeature()) != nullptr)
         {
+            std::unique_ptr<OGRFeature, decltype(&OGRFeature::DestroyFeature)>
+                featureGuard(feature, OGRFeature::DestroyFeature);
+
             Forest forest;
-            forest.setCRS(spatial::toWkt(dst));
+            forest.setCRS(dstWkt);
 
-
-            // Zakladny nazov z Name moze neskor prepisat atribut NAZOV.
             if (feature->GetFieldIndex("Name") >= 0)
             {
                 std::string name = feature->GetFieldAsString("Name");
@@ -91,7 +99,6 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
                     forest.setName(std::regex_replace(name, std::regex(" "), "_"));
             }
 
-            // Prevezmi podporovane atributy; ostatne polia zostanu nevyuzite.
             for (int f = 0; f < feature->GetFieldCount(); f++)
             {
                 std::string fieldName = feature->GetFieldDefnRef(f)->GetNameRef();
@@ -99,49 +106,26 @@ bool ForestManager::parseKML_GDAL(const std::string& filename)
                 if (fieldName == "NAZOV")
                 {
                     std::string name = feature->GetFieldAsString(f);
-                    if (!name.empty())  //ak je NAZOV, tak ten sa zapise
+                    if (!name.empty())
                         forest.setName(std::regex_replace(name, std::regex(" "), "_"));
                 }
-                else if (fieldName == "HODNOT_SEG")
-                {
-                    forest.setHodnotSeg(feature->GetFieldAsString(f));
-                }
-                else if (fieldName == "HECTARES")
-                {
-                    forest.setHectares(feature->GetFieldAsDouble(f));
-                }
-                else if (fieldName == "SEGMENT")
-                {
-                    forest.setSegment(feature->GetFieldAsString(f));
-                }
-                else if (fieldName == "KOD_PRALES")
-                {
-                    forest.setKodPrales(feature->GetFieldAsString(f));
-                }
-                else if (fieldName == "POZNAMKA")
-                {
-                    forest.setPoznamka(feature->GetFieldAsString(f));
-                }
+                else if (fieldName == "HODNOT_SEG") forest.setHodnotSeg(feature->GetFieldAsString(f));
+                else if (fieldName == "HECTARES")   forest.setHectares(feature->GetFieldAsDouble(f));
+                else if (fieldName == "SEGMENT")    forest.setSegment(feature->GetFieldAsString(f));
+                else if (fieldName == "KOD_PRALES") forest.setKodPrales(feature->GetFieldAsString(f));
+                else if (fieldName == "POZNAMKA")   forest.setPoznamka(feature->GetFieldAsString(f));
             }
 
-            // Prvok bez geometrie sa neprida; nepodporovana geometria moze dat prazdny Forest.
             OGRGeometry* geom = feature->GetGeometryRef();
-            if (!geom)
-            {
-                OGRFeature::DestroyFeature(feature);
-                continue;
-            }
+            if (!geom) continue;
 
             processPolygon(geom, forest, tr);
             forests.push_back(forest);
-            OGRFeature::DestroyFeature(feature);
         }
-
-        // Navrat je vo vnutri cyklu vrstiev, preto sa dalsie vrstvy uz nenacitaju.
-        std::cout << "Loaded " << forests.size() << " forests\n";
-        return true;
     }
-    return false;
+
+    std::cout << "Loaded " << forests.size() << " forests (total so far)\n";
+    return true;
 }
 
 void ForestManager::processPolygon(OGRGeometry* geom, Forest& forest, OGRCoordinateTransformation* tr)

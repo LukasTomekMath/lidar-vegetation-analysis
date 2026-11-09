@@ -47,9 +47,9 @@ static std::map<std::string, SatTilePair> collectSatPairs(const std::string &dir
 }
 
 int segmentFeaturesLaz(std::string kmlDir, std::string tifDirLaz, std::string output){
-        std::cout << "Use case: Load tif files in a specified directory coresponding to kml files from a specified "
-                 "directory and calculate feature vectors."
-              << std::endl;
+    std::cout << "Use case: Load tif files in a specified directory coresponding to kml files from a specified "
+                "directory and calculate feature vectors."
+            << std::endl;
 
     if (!fs::exists(kmlDir))
     {
@@ -167,7 +167,7 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
     }
 
     const std::string csvFile = outputSat;
-    initializeFeatureVectorCSV(csvFile);
+    initializeFeatureVectorSatCSV(csvFile);
 
     for (const auto &[key, pair] : collectSatPairs(tifDirSat))
     {
@@ -211,9 +211,9 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
                 continue;
 
             forest.createMask();
-            //FeatureVector fv = computeFeatureVector(r10, r20, forest);
-            //exportFeatureVectorCSV(fv, csvFile);
-            std::cout << "Matched: " << forest.getName() << " in tile " << key << "\n";
+
+            FeatureVectorSat fv = computeFeatureVector(r10, r20, forest);
+            exportFeatureVectorCSV(fv, csvFile);
         }
     }
 

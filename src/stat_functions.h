@@ -32,4 +32,7 @@ namespace StatFunctions
 
 	double MAD(const std::vector<double>& v, double med);
 
+	namespace Sat{
+		
+	}
 }

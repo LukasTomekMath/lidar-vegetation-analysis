@@ -82,13 +82,13 @@ enum Index20 : std::size_t
 };
 
 inline constexpr std::array<const char *, Count10> names10 = {
-#define X(name) #name "_10m",
+#define X(name) #name,
     SENTINEL_BANDS_10M(X)
 #undef X
 };
 
 inline constexpr std::array<const char *, Count20> names20 = {
-#define X(name) #name "_20m",
+#define X(name) #name,
     SENTINEL_BANDS_20M(X)
 #undef X
 };

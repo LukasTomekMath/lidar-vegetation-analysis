@@ -35,7 +35,7 @@ public:
     void loadDirectory(const std::string& directory);
     // Prida prvky prvej vrstvy KML do zoznamu.
     // Predpoklada vstup EPSG:4326 a prevadza ho do CRS zadaneho konstruktorom.
-    bool parseKML_GDAL(const std::string& filename);
+    bool parseVector_GDAL(const std::string& filename);
     // Vrati prvu lokalitu s presnou zhodou getName()
     // Argument musi byt uz samotny nazov (cesta ani pripona suboru sa neodstranuju)
     Forest* getForestByFileName(const std::string& name);

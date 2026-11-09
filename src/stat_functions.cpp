@@ -193,4 +193,3 @@ double StatFunctions::MAD(const std::vector<double>& v, double med)
 
     return median(devs);
 }
-
