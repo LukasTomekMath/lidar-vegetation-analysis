@@ -17,16 +17,17 @@ from rasterio.windows import Window
 from rasterio.mask import mask, raster_geometry_mask
 from shapely.geometry import box, shape
 from urllib3.util.retry import Retry
+from tqdm.auto import tqdm
 
 load_dotenv()
 
 # ======================================================
-DATE_START, DATE_END = "2024-04-01", "2024-04-14"
+DATE_START, DATE_END = "2023-10-21", "2023-10-22"
 
 EXPAND_STEP_DAYS = 5                        # widen the date window by this much on each side per round (0 = never expand)
 MAX_EXPAND_DAYS = 30                        # stop after this many days on each side
 
-LIMIT = 2                                # None = all polygons
+LIMIT = 10                                # None = all polygons
 N_BEST = 1                                  # clearest scenes to extract per polygon
 MIN_COVERAGE = 0.90                         # polygon must be >= 90% covered by valid tile data
 MAX_CLOUD_PCT = 20                          # max % of INVALID_CLASSES in polygon
@@ -161,11 +162,12 @@ def clip_bbox(srcs, geom):
 
 # load all polygons 
 gdf = gpd.read_file(SHP, encoding="cp1250")
+gdf = gdf.dissolve(by=["SEGMENT"], as_index=False)
 if LIMIT:
     gdf = gdf.head(LIMIT)
 gdf["poly_id"] = gdf.index
 gdf["name"] = (
-    gdf["NAZOV"].fillna("").astype(str).str.strip() + "_" + gdf["KOD_PRALES"].fillna("").astype(str).str.strip()
+    gdf["NAZOV"].fillna("").astype(str).str.strip() + "_" + gdf["SEGMENT"].fillna("").astype(str).str.strip()
 ).map(safe)
 dup = gdf["name"].duplicated(keep=False)                 # same name twice -> add row index
 gdf.loc[dup, "name"] = gdf.loc[dup, "name"] + "_" + gdf.loc[dup, "poly_id"].astype(str)
@@ -330,7 +332,6 @@ print(f"\n{selected_num} polygons selected, {len(skipped)} skipped (see skipped.
 # ======================================================
 sel_by_item = {k: g for k, g in selected.groupby("item_id")}
 
-total_written = 0
 def extract_item(item_id):
     global total_written
     item = items_by_id[item_id]
@@ -373,17 +374,22 @@ def extract_item(item_id):
                         dst.write(stack)
                         dst.descriptions = tuple(k.rsplit("_", 1)[0] for k in keys)
                     os.replace(tmp, path)
-                    total_written += 1
                     written += 1
-                    print(f"pass 2 : wrote |{total_written} / {2*selected_num}| : {path.name}")
             finally:
                 for s in srcs:
                     s.close()
     return written
 
-
-total = sum(extract_item(item_id) for item_id in sel_by_item)
-print(f"\nDone: {total} new files in {OUT}/")
+total_new = 2*selected_num
+with tqdm(
+    total=total_new,
+    desc="Pass 2 - extracting",
+    unit="file"
+) as pbar:
+    for item_id in sel_by_item:
+        written = extract_item(item_id)
+        pbar.update(written)
+print(f"\nDone: {total_new} new files in {OUT}/")
 
 if failures:
     pd.DataFrame(failures).to_csv(OUT / "failed.csv", index=False)

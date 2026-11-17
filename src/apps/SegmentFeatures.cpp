@@ -46,6 +46,39 @@ static std::map<std::string, SatTilePair> collectSatPairs(const std::string &dir
     return pairs;
 }
 
+static std::string normalizeKey(const std::string& s)
+{
+    std::string out;
+    for (unsigned char c : s)
+        if (c < 128 && std::isalnum(c))
+            out += (char)std::tolower(c);
+    return out;
+}
+
+// na vytvorenie outputSat_DATE-START_DATE-END
+static std::string getOutputName(const std::string& tifDirSat, const std::string& outputSat){
+    std::string dir = tifDirSat;
+    while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\'))
+        dir.pop_back();
+    
+    const size_t slash = dir.find_last_of("/\\");
+    std::string dirName = (slash == std::string::npos) ? dir : dir.substr(slash + 1);
+
+    const std::string prefix = "copernicus_";
+    const std::string dates = (dirName.rfind(prefix, 0) == 0) ? dirName.substr(prefix.size()) : dirName;
+
+    // "…/out.csv" -> "…/out_2024-04-01_2024-04-14.csv"
+    const size_t lastSep = outputSat.find_last_of("/\\");
+    const size_t dot = outputSat.find_last_of('.');
+    const bool hasExt = dot != std::string::npos && (lastSep == std::string::npos || dot > lastSep);
+
+    const std::string csvFile = hasExt
+        ? outputSat.substr(0, dot) + "_" + dates + outputSat.substr(dot)
+        : outputSat + "_" + dates;
+
+    return csvFile;
+}
+
 int segmentFeaturesLaz(std::string kmlDir, std::string tifDirLaz, std::string output){
     std::cout << "Use case: Load tif files in a specified directory coresponding to kml files from a specified "
                 "directory and calculate feature vectors."
@@ -152,6 +185,8 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
         return -1;
     }
 
+
+
     // collect tif files
     std::vector<std::string> files;
     for (const auto &entry : fs::directory_iterator(tifDirSat))
@@ -166,7 +201,7 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
             files.push_back(entry.path().string());
     }
 
-    const std::string csvFile = outputSat;
+    const std::string csvFile = getOutputName(tifDirSat, outputSat);
     initializeFeatureVectorSatCSV(csvFile);
 
     for (const auto &[key, pair] : collectSatPairs(tifDirSat))
@@ -201,18 +236,31 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
         ForestManager forestManager(rasterCRS);
         forestManager.loadDirectory(shpDir);
 
+        // group forests that share the same id (segment)
+        std::map<std::string, std::vector<Forest*>> groups;
         for (auto &forest : forestManager.getForests())
         {
             forest.calculateForestArea();
             forest.findBoundingBox();
+            groups[normalizeKey(forest.getName() + "_" + forest.getSegment())].push_back(&forest);
+        }
 
-            if (!(forest.getRawMinX() >= xMin && forest.getRawMaxX() <= xMax &&
-                forest.getRawMinY() >= yMin && forest.getRawMaxY() <= yMax))
-                continue;
+        const std::string tifKey = normalizeKey(key);
 
-            forest.createMask();
+        for (auto &[id, parts] : groups)
+        {
+            if(id != tifKey) continue;
+            
+            // all parts must lie inside the raster, otherwise stats would be partial
+            const bool inside = std::all_of(parts.begin(), parts.end(), [&](const Forest* f) {
+                return f->getRawMinX() >= xMin && f->getRawMaxX() <= xMax &&
+                       f->getRawMinY() >= yMin && f->getRawMaxY() <= yMax;
+            });
+            if (!inside) continue;
 
-            FeatureVectorSat fv = computeFeatureVector(r10, r20, forest);
+            for (Forest* f : parts) f->createMask();
+
+            FeatureVectorSat fv = computeFeatureVector(r10, r20, parts);
             exportFeatureVectorCSV(fv, csvFile);
         }
     }

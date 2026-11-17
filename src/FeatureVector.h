@@ -40,8 +40,8 @@ struct FeatureVectorSat
 MetricStats computeStatsForBand(const std::vector<double>& band, Forest& forest, const RasterData& raster, int bandIdx);
 FeatureVector computeFeatureVector(const RasterData& raster, Forest& forest);
 
-MetricStats computeStatsForBandSat(const std::vector<double>& band, Forest& forest, const RasterData& raster, int bandIdx, double maskRes);
-FeatureVectorSat computeFeatureVector(const RasterData& r10, const RasterData& r20, Forest& forest);
+MetricStats computeStatsForBandSat(const std::vector<double>& band, const std::vector<Forest*>& parts, const RasterData& raster, int bandIdx, double maskRes);
+FeatureVectorSat computeFeatureVector(const RasterData& r10, const RasterData& r20, const std::vector<Forest*>& parts);
 
 // Vytvori alebo prepise CSV a zapise hlavicku; riadky sa potom pridavaju cez exportFeatureVectorCSV.
 // Pri neuspesnom otvoreni suboru vyhodi vynimku.

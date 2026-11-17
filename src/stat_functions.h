@@ -31,8 +31,4 @@ namespace StatFunctions
 	double median(std::vector<double>& v);
 
 	double MAD(const std::vector<double>& v, double med);
-
-	namespace Sat{
-		
-	}
 }

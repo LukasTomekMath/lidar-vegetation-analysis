@@ -8,6 +8,10 @@
 #include <iostream>
 #include <stdexcept>
 
+#include <map>
+#include <unordered_set>
+#include <algorithm>
+
 //#define _DEBUG
 
 MetricStats computeStatsForBand(const std::vector<double>& band, Forest& forest, const RasterData& raster, int bandIdx)
@@ -90,56 +94,53 @@ FeatureVector computeFeatureVector(const RasterData& raster, Forest& forest)
 	return fv;
 }
 
-MetricStats computeStatsForBandSat(const std::vector<double>& band, Forest& forest, const RasterData& raster, int bandIdx, double maskRes)
+MetricStats computeStatsForBandSat(const std::vector<double>& band, const std::vector<Forest*>& parts, const RasterData& raster, int bandIdx, double maskRes)
 {
-	MetricStats s{};
+    MetricStats s{};
     const double noData = raster.noDataValues[bandIdx];
-    const auto& mask = forest.getMask();
-    if (mask.empty()) return s;
-
-    const int maskH = mask.size(), maskW = mask[0].size();
-    const double x0 = forest.getMinX(), y0 = forest.getMaxY();
-
-    // raster pixel range covering the mask bbox
-    int c0 = (int)std::floor((x0 - raster.xMin) / raster.pixelSize);
-    int c1 = (int)std::floor((x0 + maskW * maskRes - raster.xMin) / raster.pixelSize);
-    int r0 = (int)std::floor((raster.yMax - y0) / raster.pixelSize);
-    int r1 = (int)std::floor((raster.yMax - (y0 - maskH * maskRes)) / raster.pixelSize);
 
     std::vector<double> values;
+    std::unordered_set<long long> seen;   // raster pixels already counted (overlapping parts)
     double sum = 0.0;
 
-    for (int ry = std::max(r0, 0); ry <= std::min(r1, raster.ny - 1); ry++)
-        for (int rx = std::max(c0, 0); rx <= std::min(c1, raster.nx - 1); rx++)
-        {
-            double wx = raster.xMin + (rx + 0.5) * raster.pixelSize;  // pixel center
-            double wy = raster.yMax - (ry + 0.5) * raster.pixelSize;
+    for (Forest* fp : parts)
+    {
+        const auto& mask = fp->getMask();
+        if (mask.empty()) continue;
 
-            int mx = (int)std::floor((wx - x0) / maskRes);
-            int my = (int)std::floor((y0 - wy) / maskRes);
-            if (mx < 0 || mx >= maskW || my < 0 || my >= maskH) continue;
-            if (!mask[my][mx]) continue;
+        const int maskH = mask.size(), maskW = mask[0].size();
+        const double x0 = fp->getMinX(), y0 = fp->getMaxY();
 
-			#ifdef _DEBUG
-				int nMask = 0, nIn = 0, nValid = 0;
-				if (values.empty())
-					std::cerr << forest.getName() << " band " << bandIdx
-							<< " bbox X[" << x0 << "," << x0 + maskW*maskRes << "]"
-							<< " Y[" << y0 - maskH*maskRes << "," << y0 << "]"
-							<< " raster X[" << raster.xMin << "," << raster.xMin + raster.nx*raster.pixelSize << "]"
-							<< " Y[" << raster.yMax - raster.ny*raster.pixelSize << "," << raster.yMax << "]"
-							<< " mask=" << nMask << " valid=" << nValid << "\n";
-			#endif
+        // raster pixel range covering the mask bbox
+        int c0 = (int)std::floor((x0 - raster.xMin) / raster.pixelSize);
+        int c1 = (int)std::floor((x0 + maskW * maskRes - raster.xMin) / raster.pixelSize);
+        int r0 = (int)std::floor((raster.yMax - y0) / raster.pixelSize);
+        int r1 = (int)std::floor((raster.yMax - (y0 - maskH * maskRes)) / raster.pixelSize);
 
-            double v = band[ry * raster.nx + rx];
-            if (!std::isfinite(v) || v == noData) continue;
+        for (int ry = std::max(r0, 0); ry <= std::min(r1, raster.ny - 1); ry++)
+            for (int rx = std::max(c0, 0); rx <= std::min(c1, raster.nx - 1); rx++)
+            {
+                double wx = raster.xMin + (rx + 0.5) * raster.pixelSize;  // pixel center
+                double wy = raster.yMax - (ry + 0.5) * raster.pixelSize;
 
-            if (values.empty()) s.min = s.max = v;
-            s.min = std::min(s.min, v);
-            s.max = std::max(s.max, v);
-            sum += v;
-            values.push_back(v);
-        }
+                int mx = (int)std::floor((wx - x0) / maskRes);
+                int my = (int)std::floor((y0 - wy) / maskRes);
+                if (mx < 0 || mx >= maskW || my < 0 || my >= maskH) continue;
+                if (!mask[my][mx]) continue;
+
+                const long long idx = (long long)ry * raster.nx + rx;
+                if (!seen.insert(idx).second) continue;   // already counted by another part
+
+                double v = band[idx];
+                if (!std::isfinite(v) || v == noData) continue;
+
+                if (values.empty()) s.min = s.max = v;
+                s.min = std::min(s.min, v);
+                s.max = std::max(s.max, v);
+                sum += v;
+                values.push_back(v);
+            }
+    }
 
     if (!values.empty()) {
         s.mean = sum / values.size();
@@ -150,27 +151,31 @@ MetricStats computeStatsForBandSat(const std::vector<double>& band, Forest& fore
     return s;
 }
 
-FeatureVectorSat computeFeatureVector(const RasterData& r10, const RasterData& r20, Forest& forest)
+FeatureVectorSat computeFeatureVector(const RasterData& r10, const RasterData& r20, const std::vector<Forest*>& parts)
 {
     FeatureVectorSat fv;
-    fv.forestName = forest.getNameWithoutDiacritics();
-    fv.segment    = forest.getSegment();
-    fv.kodPrales  = forest.getKodPrales();
-    fv.hodnotSeg  = forest.getHodnotSeg();
-    fv.hectares   = forest.getHectares();
-    fv.poznamka   = forest.getPoznamka().empty()
+    const Forest& first = *parts.front();
+
+    fv.forestName = first.getNameWithoutDiacritics();
+    fv.segment    = first.getSegment();
+    fv.kodPrales  = first.getKodPrales();
+    fv.hodnotSeg  = first.getHodnotSeg();
+    fv.poznamka   = first.getPoznamka().empty()
                         ? "none"
-                        : "\"" + forest.getPoznamka() + "\"";
+                        : "\"" + first.getPoznamka() + "\"";
+
+    fv.hectares = 0.0;
+    for (Forest* f : parts) fv.hectares += f->getHectares();
 
     fv.metrics.reserve(r10.nBands + r20.nBands);
 
     // 10 m bands (e.g. B02, B03, B04, B08)
     for (int i = 0; i < r10.nBands; i++)
-        fv.metrics.push_back(computeStatsForBandSat(r10.bands[i], forest, r10, i, 2.0));
+        fv.metrics.push_back(computeStatsForBandSat(r10.bands[i], parts, r10, i, 2.0));
 
     // 20 m bands (e.g. B05, B06, B07, B8A, B11, B12)
     for (int i = 0; i < r20.nBands; i++)
-        fv.metrics.push_back(computeStatsForBandSat(r20.bands[i], forest, r20, i, 2.0));
+        fv.metrics.push_back(computeStatsForBandSat(r20.bands[i], parts, r20, i, 2.0));
 
     return fv;
 }
