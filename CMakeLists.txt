@@ -18,7 +18,9 @@ add_library(vegetation_core STATIC
     src/ForestManager.cpp src/ForestManager.h
     src/RasterIO.cpp src/RasterIO.h
     src/FeatureVector.cpp src/FeatureVector.h
+    src/FeatureVectorSat.cpp src/FeatureVectorSat.h
 )
+
 target_include_directories(vegetation_core PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/src"

@@ -1,8 +1,11 @@
 #include "AppSupport.h"
+
 #include "FeatureVector.h"
+#include "FeatureVectorSat.h"
 #include "MetricDefinitions.h"
 #include "MetricDefinitionsSentinel.h"
 #include "MetricDefinitionsVegIndices.h"
+
 #include "ForestManager.h"
 #include "RasterIO.h"
 #include "gdal_priv.h"
@@ -262,8 +265,8 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
 
             for (Forest* f : parts) f->createMask();
 
-            FeatureVectorSat fv = computeFeatureVector(r10, r20, parts);
-            exportFeatureVectorCSV(fv, csvFile);
+            FeatureVectorSat fv = computeFeatureVectorSat(r10, r20, parts);
+            exportFeatureVectorSatCSV(fv, csvFile);
         }
     }
 
