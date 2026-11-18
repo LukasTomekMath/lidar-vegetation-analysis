@@ -4,22 +4,6 @@
 #include <iostream>
 #include <string>
 
-namespace
-{
-bool hasFlag(int argc, char **argv, const char *flag)
-{
-    const std::size_t len = std::strlen(flag);
-    for (int i = 1; i < argc; ++i)
-    {
-        // matches "--kml-dir <v>" and "--kml-dir=<v>"
-        if (std::strncmp(argv[i], flag, len) == 0 &&
-            (argv[i][len] == '\0' || argv[i][len] == '='))
-            return true;
-    }
-    return false;
-}
-} // namespace
-
 int main(int argc, char **argv)
 {
     try

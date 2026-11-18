@@ -1,6 +1,8 @@
 #include "AppSupport.h"
 #include "FeatureVector.h"
 #include "MetricDefinitions.h"
+#include "MetricDefinitionsSentinel.h"
+#include "MetricDefinitionsVegIndices.h"
 #include "ForestManager.h"
 #include "RasterIO.h"
 #include "gdal_priv.h"

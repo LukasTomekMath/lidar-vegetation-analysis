@@ -1,5 +1,7 @@
 #include "FeatureVector.h"
 #include "MetricDefinitions.h"
+#include "MetricDefinitionsSentinel.h"
+#include "MetricDefinitionsVegIndices.h"
 #include "Forest.h"
 #include "RasterIO.h"
 
@@ -134,9 +136,6 @@ MetricStats computeStatsForBandSat(const std::vector<double>& band, const std::v
                 double v = band[idx];
                 if (!std::isfinite(v) || v == noData) continue;
 
-                if (values.empty()) s.min = s.max = v;
-                s.min = std::min(s.min, v);
-                s.max = std::max(s.max, v);
                 sum += v;
                 values.push_back(v);
             }
@@ -147,6 +146,13 @@ MetricStats computeStatsForBandSat(const std::vector<double>& band, const std::v
         double var = 0.0;
         for (double v : values) var += (v - s.mean) * (v - s.mean);
         s.std = std::sqrt(var / values.size());
+
+        
+        const size_t n = values.size(), m = n / 2;
+        std::nth_element(values.begin(), values.begin() + m, values.end());
+        s.median = values[m];
+        if (n % 2 == 0)
+            s.median = 0.5 * (s.median + *std::max_element(values.begin(), values.begin() + m));
     }
     return s;
 }
@@ -227,7 +233,7 @@ void exportFeatureVectorCSV(const FeatureVectorSat& fv, const std::string& csvPa
         << fv.hodnotSeg << "," << fv.hectares << "," << fv.poznamka;
 
     for (const auto& m : fv.metrics)
-        csv << "," << m.mean << "," << m.std << "," << m.min << "," << m.max;
+        csv << "," << m.mean << "," << m.std << "," << m.median;
 
     csv << "\n";
 }
@@ -245,8 +251,7 @@ void initializeFeatureVectorSatCSV(const std::string& csvPath)
 		for (const auto& name : names)
 			csv << "," << name << "_mean"
 				<< "," << name << "_std"
-				<< "," << name << "_min"
-				<< "," << name << "_max";
+				<< "," << name << "_median";
 	};
 
 	writeBandHeader(sentinel::names10);

@@ -27,6 +27,9 @@ void printUsage(const std::string &app)
     else if (app == "crop_laz")
         std::cout << " --kml-dir DIR --laz-dir DIR --output-dir DIR [--threads N]\n"
                   << "Crop LAZ files to forest bounding boxes using libs/las2las64.exe. Run from the project root.\n";
+    else if(app == "create_vegetation_indices")
+        std::cout << " --tif-dir-sat DIR --output-dir DIR\n"
+                  << "Create TIF files based on vegetation indices.";
     else
         std::cout << " --kml-dir DIR --laz-dir DIR --output-dir DIR\n"
                   << "Write pralesy.txt and tiles.txt and report file availability.\n";
@@ -56,6 +59,8 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
         allowed = {"--shp-dir", "--tif-dir-sat", "--output-sat"};
     else if (app == "crop_laz")
         allowed = {"--kml-dir", "--laz-dir", "--output-dir", "--threads"};
+    else if(app == "create_vegetation_indices")
+        allowed = {"--tif-dir-sat", "--output-dir"};
     else
         allowed = {"--kml-dir", "--laz-dir", "--output-dir"};
     // Argumenty citaj ako dvojice --prepinac hodnota; duplicity odmietni.
@@ -83,13 +88,14 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
     const bool isLazSeg = (app == "segment_features_laz");
     const bool isSatSeg = (app == "segment_features_sat");
     const bool isLidar  = (app == "lidar_metrics");
+    const bool isVegIdx = (app == "create_vegetation_indices");
 
     // --laz-dir: needed by lidar_metrics, crop_laz and the default (tiles) app
-    if (!isLazSeg && !isSatSeg)
+    if (!isLazSeg && !isSatSeg && !isVegIdx)
         result.lazDir = required("--laz-dir");
 
     // --kml-dir: optional for lidar_metrics, required for the others except sat
-    if (isLazSeg || (!isLidar && !isSatSeg) || (isLidar && values.count("--kml-dir")))
+    if (isLazSeg || (!isLidar && !isSatSeg && !isVegIdx) || (isLidar && values.count("--kml-dir")))
         result.kmlDir = required("--kml-dir");
 
     if (isSatSeg)
@@ -106,7 +112,10 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
         result.outputSat = required("--output-sat");
     }
     else
-    {
+        result.outputDir = required("--output-dir");
+
+    if(isVegIdx){
+        result.tifDirSat = required("--tif-dir-sat");
         result.outputDir = required("--output-dir");
     }
 
@@ -197,3 +206,14 @@ std::string formatTime(double seconds)
     return oss.str();
 }
 
+bool hasFlag(int argc, char **argv, const char *flag)
+{
+    const std::size_t len = std::strlen(flag);
+    for (int i = 1; i < argc; ++i)
+    {
+        if (std::strncmp(argv[i], flag, len) == 0 &&
+            (argv[i][len] == '\0' || argv[i][len] == '='))
+            return true;
+    }
+    return false;
+}

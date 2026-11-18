@@ -35,6 +35,8 @@ std::string formatTime(double seconds);
 void validateTileName(const std::filesystem::path &path);
 // Vrati priecinok spusteneho EXE, nezavisle od aktualneho pracovneho adresara.
 std::filesystem::path executableDirectory();
+// skontroluje ci argument obsahuje flag
+bool hasFlag(int argc, char **argv, const char *flag);
 
 // Vstupne funkcie rezimov: metriky po dlazdiciach alebo lokalitach, agregacia,
 // orezanie LAZ a kontrolny vypis lokalit.
@@ -43,3 +45,4 @@ int runForestFiles(const AppOptions &options);
 int runSegmentFeatures(const AppOptions &options);
 int runCropLaz(const AppOptions &options);
 int runInspectForests(const AppOptions &options);
+int runCreateVegetationIndices(const AppOptions &options);

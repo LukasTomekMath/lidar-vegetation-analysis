@@ -12,6 +12,7 @@ struct MetricStats
 	double std;
 	double min;
 	double max;
+	double median;
 };
 
 //samotny vysledny feature vector pre dany prales
