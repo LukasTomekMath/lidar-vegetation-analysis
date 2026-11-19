@@ -27,7 +27,7 @@ DATE_START, DATE_END = "2023-10-21", "2023-10-22"
 EXPAND_STEP_DAYS = 5                        # widen the date window by this much on each side per round (0 = never expand)
 MAX_EXPAND_DAYS = 30                        # stop after this many days on each side
 
-LIMIT = 10                                # None = all polygons
+LIMIT = None                                # None = all polygons
 N_BEST = 1                                  # clearest scenes to extract per polygon
 MIN_COVERAGE = 0.90                         # polygon must be >= 90% covered by valid tile data
 MAX_CLOUD_PCT = 20                          # max % of INVALID_CLASSES in polygon
@@ -42,7 +42,7 @@ PREVIEW = False                             # plot the first extracted polygon a
 CLIP_TO_BBOX = True                         # save the polygon's bounding box instead of the polygon shape
 STATS_ON_BBOX = False                       # True = cloud % / coverage over the bbox instead of the polygon
 
-OUT = Path("copernicus" + "_" + DATE_START + "_" + DATE_END)
+OUT = Path("result/copernicus" + "_" + DATE_START + "_" + DATE_END)
 
 BANDS_10M = ["B02_10m", "B03_10m", "B04_10m", "B08_10m"]
 BANDS_20M = ["B05_20m", "B06_20m", "B07_20m", "B8A_20m", "B11_20m", "B12_20m", "SCL_20m"]
@@ -332,7 +332,7 @@ print(f"\n{selected_num} polygons selected, {len(skipped)} skipped (see skipped.
 # ======================================================
 sel_by_item = {k: g for k, g in selected.groupby("item_id")}
 
-def extract_item(item_id):
+def extract_item(item_id, pbar):
     global total_written
     item = items_by_id[item_id]
     grp = sel_by_item[item_id]
@@ -375,20 +375,24 @@ def extract_item(item_id):
                         dst.descriptions = tuple(k.rsplit("_", 1)[0] for k in keys)
                     os.replace(tmp, path)
                     written += 1
+                    pbar.update(1)
             finally:
                 for s in srcs:
                     s.close()
     return written
 
-total_new = 2*selected_num
+total_new = sum(
+    not out_path(r.name, r.date, res).exists()
+    for _, r in selected.iterrows()
+    for res in ("10m", "20m")
+)
 with tqdm(
     total=total_new,
     desc="Pass 2 - extracting",
     unit="file"
 ) as pbar:
     for item_id in sel_by_item:
-        written = extract_item(item_id)
-        pbar.update(written)
+        extract_item(item_id, pbar)
 print(f"\nDone: {total_new} new files in {OUT}/")
 
 if failures:

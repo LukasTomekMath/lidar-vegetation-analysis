@@ -3,8 +3,9 @@
 #include "RasterIO.h"
 
 #define VEG_INDICES(X) \
-    X(NDVI, (p.B08 - p.B04) / (p.B08 + p.B04)) /* normalized difference vegetation index */ \
-    X(NDMI, (p.B08 - p.B11) / (p.B08 + p.B11)) /* normalized difference moisture index */
+    X(NDVI, (p.B08 - p.B04) / (p.B08 + p.B04)) /* Normalized Difference Vegetation Index */ \
+    X(gNDVI,(p.B08 - p.B03) / (p.B08 + p.B03)) /* Green Normalized Difference Vegetation Index */ \
+    X(NDMI, (p.B08 - p.B11) / (p.B08 + p.B11)) /* Normalized Difference Moisture Index */                  
 
 namespace VI {
 enum Index : std::size_t {
