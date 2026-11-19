@@ -42,7 +42,7 @@ PREVIEW = False                             # plot the first extracted polygon a
 CLIP_TO_BBOX = True                         # save the polygon's bounding box instead of the polygon shape
 STATS_ON_BBOX = False                       # True = cloud % / coverage over the bbox instead of the polygon
 
-OUT = Path("result/copernicus" + "_" + DATE_START + "_" + DATE_END)
+OUT = Path("results/copernicus" + "_" + DATE_START + "_" + DATE_END)
 
 BANDS_10M = ["B02_10m", "B03_10m", "B04_10m", "B08_10m"]
 BANDS_20M = ["B05_20m", "B06_20m", "B07_20m", "B8A_20m", "B11_20m", "B12_20m", "SCL_20m"]
