@@ -1,9 +1,10 @@
 #pragma once
 #include "MetricDefinitionsSentinel.h"
+#include "RasterIO.h"
 
 #define VEG_INDICES(X) \
     X(NDVI, (p.B08 - p.B04) / (p.B08 + p.B04)) /* normalized difference vegetation index */ \
-    X(NDMI, (p.B08 - p.B11) / (p.B08 + p.B11)) /*normalized difference moisture index */
+    X(NDMI, (p.B08 - p.B11) / (p.B08 + p.B11)) /* normalized difference moisture index */
 
 namespace VI {
 enum Index : std::size_t {
@@ -23,4 +24,20 @@ inline constexpr std::array<double (*)(const Pixel&), Count> funcs = {
     VEG_INDICES(X)
 #undef X
 };
+}
+
+inline double cleanValue(double v, double noData) {
+    return (!std::isfinite(v) || v == noData) ? NAN : v;
+}
+
+inline Pixel makePixel(const RasterData& r10, const RasterData& r20, size_t i10, size_t i20)
+{
+    Pixel p;
+#define X(name) p.name = cleanValue(r10.bands[sentinel::name##_10m][i10], r10.noDataValues[sentinel::name##_10m]);
+    SENTINEL_BANDS_10M(X)
+#undef X
+#define X(name) p.name = cleanValue(r20.bands[sentinel::name##_20m][i20], r20.noDataValues[sentinel::name##_20m]);
+    SENTINEL_BANDS_20M(X)
+#undef X
+    return p;
 }

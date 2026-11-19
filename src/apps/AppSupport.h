@@ -37,6 +37,8 @@ void validateTileName(const std::filesystem::path &path);
 std::filesystem::path executableDirectory();
 // skontroluje ci argument obsahuje flag
 bool hasFlag(int argc, char **argv, const char *flag);
+// na vytvorenie outputSat_DATE-START_DATE-END
+std::string getOutputName(const std::string& tifDirSat, const std::string& outputSat);
 
 // Vstupne funkcie rezimov: metriky po dlazdiciach alebo lokalitach, agregacia,
 // orezanie LAZ a kontrolny vypis lokalit.

@@ -2,9 +2,11 @@
 
 #include "FeatureVector.h"
 #include "FeatureVectorSat.h"
+//#include "FeatureVectorVeg.h"
+
 #include "MetricDefinitions.h"
 #include "MetricDefinitionsSentinel.h"
-#include "MetricDefinitionsVegIndices.h"
+//#include "MetricDefinitionsVegIndices.h"
 
 #include "ForestManager.h"
 #include "RasterIO.h"
@@ -58,30 +60,6 @@ static std::string normalizeKey(const std::string& s)
         if (c < 128 && std::isalnum(c))
             out += (char)std::tolower(c);
     return out;
-}
-
-// na vytvorenie outputSat_DATE-START_DATE-END
-static std::string getOutputName(const std::string& tifDirSat, const std::string& outputSat){
-    std::string dir = tifDirSat;
-    while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\'))
-        dir.pop_back();
-    
-    const size_t slash = dir.find_last_of("/\\");
-    std::string dirName = (slash == std::string::npos) ? dir : dir.substr(slash + 1);
-
-    const std::string prefix = "copernicus_";
-    const std::string dates = (dirName.rfind(prefix, 0) == 0) ? dirName.substr(prefix.size()) : dirName;
-
-    // "…/out.csv" -> "…/out_2024-04-01_2024-04-14.csv"
-    const size_t lastSep = outputSat.find_last_of("/\\");
-    const size_t dot = outputSat.find_last_of('.');
-    const bool hasExt = dot != std::string::npos && (lastSep == std::string::npos || dot > lastSep);
-
-    const std::string csvFile = hasExt
-        ? outputSat.substr(0, dot) + "_" + dates + outputSat.substr(dot)
-        : outputSat + "_" + dates;
-
-    return csvFile;
 }
 
 int segmentFeaturesLaz(std::string kmlDir, std::string tifDirLaz, std::string output){
@@ -188,22 +166,6 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
     {
         std::cerr << "Directory does not exist: " << tifDirSat << "\n";
         return -1;
-    }
-
-
-
-    // collect tif files
-    std::vector<std::string> files;
-    for (const auto &entry : fs::directory_iterator(tifDirSat))
-    {
-        if (!entry.is_regular_file())
-            continue;
-
-        auto ext = entry.path().extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
-        if (ext == ".tif" || ext == ".tiff")
-            files.push_back(entry.path().string());
     }
 
     const std::string csvFile = getOutputName(tifDirSat, outputSat);

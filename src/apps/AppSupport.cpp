@@ -137,6 +137,10 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
         // Odmietni zhodnu normalizovanu cestu pre vstupne LAZ a vystupy.
         if (!result.lazDir.empty() && fs::path(result.outputDir) == fs::path(result.lazDir))
             throw std::runtime_error("Output directory must differ from LAZ input directory");
+        
+        if(isVegIdx)
+            result.outputDir = getOutputName(result.tifDirSat, result.outputDir);
+
         fs::create_directories(result.outputDir);
     }
 
@@ -216,4 +220,27 @@ bool hasFlag(int argc, char **argv, const char *flag)
             return true;
     }
     return false;
+}
+
+std::string getOutputName(const std::string& tifDirSat, const std::string& outputSat){
+    std::string dir = tifDirSat;
+    while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\'))
+        dir.pop_back();
+    
+    const size_t slash = dir.find_last_of("/\\");
+    std::string dirName = (slash == std::string::npos) ? dir : dir.substr(slash + 1);
+
+    const std::string prefix = "copernicus_";
+    const std::string dates = (dirName.rfind(prefix, 0) == 0) ? dirName.substr(prefix.size()) : dirName;
+
+    // "…/out.csv" -> "…/out_2024-04-01_2024-04-14.csv"
+    const size_t lastSep = outputSat.find_last_of("/\\");
+    const size_t dot = outputSat.find_last_of('.');
+    const bool hasExt = dot != std::string::npos && (lastSep == std::string::npos || dot > lastSep);
+
+    const std::string csvFile = hasExt
+        ? outputSat.substr(0, dot) + "_" + dates + outputSat.substr(dot)
+        : outputSat + "_" + dates;
+
+    return csvFile;
 }
