@@ -43,10 +43,15 @@ Forest* ForestManager::getForestByFileName(const std::string& fileName)
 
 bool ForestManager::parseVector_GDAL(const std::string& filename)
 {
+    const bool isShp = std::filesystem::u8path(filename).extension() == ".shp";
+    const char* opts[] = { "ENCODING=CP1250", nullptr };   // DBF -> UTF-8
+
     GDALDataset* ds = (GDALDataset*)GDALOpenEx(
         filename.c_str(),
         GDAL_OF_VECTOR,
-        NULL, NULL, NULL);
+        NULL,
+        isShp ? opts : NULL,
+        NULL);
     if (!ds)
     {
         std::cout << "Failed to open dataset: " << filename << "\n";

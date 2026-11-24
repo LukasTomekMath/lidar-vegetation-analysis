@@ -137,7 +137,7 @@ int createVegetationIndices(const std::string tifDir, const std::string outputDi
         }
 
         const double gt[6] = { r10.xMin, r10.pixelSize, 0.0, r10.yMax, 0.0, -r10.pixelSize };
-        const std::string outPath = (fs::path(outputDir) / (key + ".tif")).u8string();
+        const std::string outPath = (fs::u8path(outputDir) / fs::u8path(key + ".tif")).u8string();
         
         if(!writeIndexTiff(outPath, out, r10.nx, r10.ny, gt, r10.crsWkt.c_str()))
             throw std::runtime_error("Write failed: " + outPath);

@@ -56,7 +56,7 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
     else if (app == "segment_features_laz")
         allowed = {"--kml-dir", "--tif-dir-laz", "--output-laz"};
     else if (app == "segment_features_sat")
-        allowed = {"--shp-dir", "--tif-dir-sat", "--output-sat"};
+        allowed = {"--shp-dir", "--tif-dir-sat", "--output-sat", "--vi"};
     else if (app == "crop_laz")
         allowed = {"--kml-dir", "--laz-dir", "--output-dir", "--threads"};
     else if(app == "create_vegetation_indices")
@@ -72,6 +72,7 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
             throw std::runtime_error("Unknown option: " + key);
         if (values.count(key))
             throw std::runtime_error("Duplicate option: " + key);
+        if(key == "--vi") { values[key] = "1"; continue; }
         if (++i == argc || std::string(argv[i]).rfind("--", 0) == 0 || !*argv[i])
             throw std::runtime_error("Missing value for " + key);
         values[key] = argv[i];
@@ -108,6 +109,9 @@ AppOptions parseOptions(int argc, char **argv, const std::string &app)
     }
     else if (isSatSeg)
     {
+        if(hasFlag(argc, argv, "--vi"))
+            result.mode = "vegetation_index";
+            
         result.tifDirSat = required("--tif-dir-sat");
         result.outputSat = required("--output-sat");
     }

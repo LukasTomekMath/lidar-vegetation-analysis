@@ -2,11 +2,11 @@
 
 #include "FeatureVector.h"
 #include "FeatureVectorSat.h"
-//#include "FeatureVectorVeg.h"
+#include "FeatureVectorVI.h"
 
 #include "MetricDefinitions.h"
 #include "MetricDefinitionsSentinel.h"
-//#include "MetricDefinitionsVegIndices.h"
+#include "MetricDefinitionsVegIndices.h"
 
 #include "ForestManager.h"
 #include "RasterIO.h"
@@ -235,6 +235,64 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
     return 0;
 }
 
+int segmentFeaturesVI(const std::string shpDir, const std::string tifDirSat, const std::string outputSat)
+{
+    if (!fs::exists(fs::u8path(shpDir)))    { std::cerr << "Directory does not exist: " << shpDir << "\n";    return -1; }
+    if (!fs::exists(fs::u8path(tifDirSat))) { std::cerr << "Directory does not exist: " << tifDirSat << "\n"; return -1; }
+
+    const std::string csvFile = getOutputName(tifDirSat, outputSat);
+    initializeFeatureVectorVICSV(csvFile);
+
+    for (const auto &entry : fs::directory_iterator(fs::u8path(tifDirSat)))
+    {
+        if (!entry.is_regular_file() || entry.path().extension() != ".tif")
+            continue;
+
+        const std::string tifPath = entry.path().u8string();
+        const std::string tifKey  = normalizeKey(entry.path().stem().u8string());
+
+        RasterData raster = readGeoTiff(tifPath);
+        if (raster.nBands != static_cast<int>(VI::Count))
+            throw std::runtime_error("Expected " + std::to_string(VI::Count) + " bands: " + tifPath);
+
+        OGRSpatialReference rasterCRS;
+        if (raster.crsWkt.empty() || rasterCRS.importFromWkt(raster.crsWkt.c_str()) != OGRERR_NONE)
+            throw std::runtime_error("Unknown raster CRS: " + tifPath);
+
+        const double xMin = raster.xMin;
+        const double xMax = raster.xMin + raster.nx * raster.pixelSize;
+        const double yMax = raster.yMax;
+        const double yMin = raster.yMax - raster.ny * raster.pixelSize;
+
+        ForestManager forestManager(rasterCRS);
+        forestManager.loadDirectory(shpDir);
+
+        std::map<std::string, std::vector<Forest*>> groups;
+        for (auto &forest : forestManager.getForests())
+        {
+            forest.calculateForestArea();
+            forest.findBoundingBox();
+            groups[normalizeKey(forest.getName() + "_" + forest.getSegment())].push_back(&forest);
+        }
+
+        auto it = groups.find(tifKey);
+        if (it == groups.end()) { std::cerr << "No segment for " << tifKey << "\n"; continue; }
+        auto &parts = it->second;
+
+        const bool inside = std::all_of(parts.begin(), parts.end(), [&](const Forest *f) {
+            return f->getRawMinX() >= xMin && f->getRawMaxX() <= xMax &&
+                   f->getRawMinY() >= yMin && f->getRawMaxY() <= yMax;
+        });
+        if (!inside) { std::cerr << "Outside raster: " << tifKey << "\n"; continue; }
+
+        for (Forest *f : parts) f->createMask();
+
+        FeatureVectorVI fv = computeFeatureVectorVI(raster, parts);
+        exportFeatureVectorVICSV(fv, csvFile);
+    }
+    return 0;
+}
+
 int runSegmentFeatures(const AppOptions &options)
 {
     // This aggregation loop is sequential.
@@ -248,10 +306,16 @@ int runSegmentFeatures(const AppOptions &options)
     std::string tifDirSat = options.tifDirSat;
     std::string outputSat = options.outputSat;
 
+    std::string mode = options.mode;
+
     if(!tifDirLaz.empty())
         segmentFeaturesLaz(kmlDir, tifDirLaz, outputLaz);
-    if(!tifDirSat.empty())
-        segmentFeaturesSat(shpDir, tifDirSat, outputSat);
+    if(!tifDirSat.empty()){
+        if(mode == "vegetation_index")
+            segmentFeaturesVI(shpDir, tifDirSat, outputSat);
+        else
+            segmentFeaturesSat(shpDir, tifDirSat, outputSat);
+    }
 
     return 0;
 }

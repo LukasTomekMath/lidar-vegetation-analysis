@@ -18,6 +18,8 @@ struct AppOptions
     // Nula ponecha predvoleny pocet vlakien konkretneho rezimu.
     int threads = 0;
     bool help = false;
+    // Prepinac medzi sat a sat vegetation index
+    std::string mode = "sat";
 };
 
 // Overi argumenty pre dany program, prevedie cesty na absolutne a vytvori vystupne priecinky.

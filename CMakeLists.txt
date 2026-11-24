@@ -19,6 +19,7 @@ add_library(vegetation_core STATIC
     src/RasterIO.cpp src/RasterIO.h
     src/FeatureVector.cpp src/FeatureVector.h
     src/FeatureVectorSat.cpp src/FeatureVectorSat.h
+    src/FeatureVectorVI.cpp src/FeatureVectorVI.h
 )
 
 target_include_directories(vegetation_core PUBLIC
