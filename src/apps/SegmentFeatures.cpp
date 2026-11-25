@@ -16,8 +16,13 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <optional>
+#include <omp.h>
+#include <atomic>
 
 namespace fs = std::filesystem;
+
+namespace {
 
 struct SatTilePair
 {
@@ -25,7 +30,56 @@ struct SatTilePair
     std::string path20;
 };
 
-static std::map<std::string, SatTilePair> collectSatPairs(const std::string &dir)
+std::string normalizeKey(const std::string& s)
+{
+    std::string out;
+    for (unsigned char c : s)
+        if (c < 128 && std::isalnum(c))
+            out += (char)std::tolower(c);
+    return out;
+}
+
+// Returns cache key (EPSG code if known, else WKT). Fills `crs`.
+std::string crsKeyFromWkt(const std::string &wkt, OGRSpatialReference &crs, const std::string &ctx)
+{
+    if (wkt.empty() || crs.importFromWkt(wkt.c_str()) != OGRERR_NONE)
+        throw std::runtime_error("Unknown raster CRS: " + ctx);
+    const char *code = crs.GetAuthorityCode(nullptr);
+    return code ? std::string("EPSG:") + code : wkt;
+}
+
+// Header-only: no pixel read.
+std::string readCrsWkt(const std::string &path)
+{
+    GDALDataset *ds = (GDALDataset *)GDALOpenEx(path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY,
+                                                nullptr, nullptr, nullptr);
+    if (!ds) throw std::runtime_error("Cannot open: " + path);
+    std::string wkt = ds->GetProjectionRef() ? ds->GetProjectionRef() : "";
+    GDALClose(ds);
+    return wkt;
+}
+
+struct ForestSet {
+    std::unique_ptr<ForestManager> mgr;
+    std::map<std::string, std::vector<Forest*>> groups;
+};
+
+ForestSet loadForestSet(const std::string &shpDir, const OGRSpatialReference &crs)
+{
+    ForestSet s;
+    s.mgr = std::make_unique<ForestManager>(crs);
+    s.mgr->loadDirectory(shpDir);
+    // never load into mgr after this, Forest* would dangle
+    for (auto &f : s.mgr->getForests())
+    {
+        f.calculateForestArea();
+        f.findBoundingBox();
+        s.groups[normalizeKey(f.getName() + "_" + f.getSegment())].push_back(&f);
+    }
+    return s;
+}
+
+std::map<std::string, SatTilePair> collectSatPairs(const std::string &dir)
 {
     std::map<std::string, SatTilePair> pairs;
     for (const auto &entry : fs::directory_iterator(dir))
@@ -53,13 +107,6 @@ static std::map<std::string, SatTilePair> collectSatPairs(const std::string &dir
     return pairs;
 }
 
-static std::string normalizeKey(const std::string& s)
-{
-    std::string out;
-    for (unsigned char c : s)
-        if (c < 128 && std::isalnum(c))
-            out += (char)std::tolower(c);
-    return out;
 }
 
 int segmentFeaturesLaz(std::string kmlDir, std::string tifDirLaz, std::string output){
@@ -152,24 +199,21 @@ int segmentFeaturesLaz(std::string kmlDir, std::string tifDirLaz, std::string ou
     return 0;
 }
 
-int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, const std::string outputSat){
+int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, const std::string outputSat)
+{
     std::cout << "Use case: Load Sentinel-2 tif files from a specified directory, match them to shapefile "
                  "polygons from a specified directory and calculate feature vectors."
               << std::endl;
 
-    if (!fs::exists(shpDir))
-    {
-        std::cerr << "Directory does not exist: " << shpDir << "\n";
-        return -1;
-    }
-    if (!fs::exists(tifDirSat))
-    {
-        std::cerr << "Directory does not exist: " << tifDirSat << "\n";
-        return -1;
-    }
+    if (!fs::exists(shpDir))    { std::cerr << "Directory does not exist: " << shpDir << "\n";    return -1; }
+    if (!fs::exists(tifDirSat)) { std::cerr << "Directory does not exist: " << tifDirSat << "\n"; return -1; }
 
     const std::string csvFile = getOutputName(tifDirSat, outputSat);
     initializeFeatureVectorSatCSV(csvFile);
+
+    // serial setup: build work list + fill cache
+    std::vector<std::pair<std::string, SatTilePair>> work;
+    std::map<std::string, ForestSet> cache;
 
     for (const auto &[key, pair] : collectSatPairs(tifDirSat))
     {
@@ -178,59 +222,92 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
             std::cerr << "Skipping " << key << ": missing 10m or 20m file\n";
             continue;
         }
+        work.emplace_back(key, pair);
 
-        RasterData r10 = readGeoTiff(pair.path10);
-        RasterData r20 = readGeoTiff(pair.path20);
+        OGRSpatialReference crs;
+        const std::string crsKey = crsKeyFromWkt(readCrsWkt(pair.path10), crs, pair.path10);
+        if (!cache.count(crsKey))
+            cache.emplace(crsKey, loadForestSet(shpDir, crs));
+    }
+    // cache is read-only from here on
 
-        if (r10.nBands != static_cast<int>(sentinel::Count10))
-            throw std::runtime_error("Expected " + std::to_string(sentinel::Count10) + " bands: " + pair.path10);
-        if (r20.nBands != static_cast<int>(sentinel::Count20))
-            throw std::runtime_error("Expected " + std::to_string(sentinel::Count20) + " bands: " + pair.path20);
+    std::exception_ptr firstError = nullptr;
+    std::vector<std::optional<FeatureVectorSat>> results(work.size());
 
-        if (r10.crsWkt != r20.crsWkt)
-            throw std::runtime_error("10m and 20m CRS differ for " + key);
+    std::atomic<size_t> done{0};
+    const size_t total = work.size();
 
-        OGRSpatialReference rasterCRS;
-        if (r10.crsWkt.empty() || rasterCRS.importFromWkt(r10.crsWkt.c_str()) != OGRERR_NONE)
-            throw std::runtime_error("Unknown raster CRS: " + pair.path10);
-
-        // extent from the 10m raster; the 20m one should cover the same footprint
-        const double xMin = r10.xMin;
-        const double xMax = r10.xMin + r10.nx * r10.pixelSize;
-        const double yMax = r10.yMax;
-        const double yMin = r10.yMax - r10.ny * r10.pixelSize;
-
-        ForestManager forestManager(rasterCRS);
-        forestManager.loadDirectory(shpDir);
-
-        // group forests that share the same id (segment)
-        std::map<std::string, std::vector<Forest*>> groups;
-        for (auto &forest : forestManager.getForests())
+#pragma omp parallel for schedule(dynamic)
+    for (long long i = 0; i < work.size(); ++i)
+    {
+        try
         {
-            forest.calculateForestArea();
-            forest.findBoundingBox();
-            groups[normalizeKey(forest.getName() + "_" + forest.getSegment())].push_back(&forest);
-        }
+            const auto &[key, pair] = work[i];
 
-        const std::string tifKey = normalizeKey(key);
+            RasterData r10 = readGeoTiff(pair.path10);
+            RasterData r20 = readGeoTiff(pair.path20);
 
-        for (auto &[id, parts] : groups)
-        {
-            if(id != tifKey) continue;
-            
-            // all parts must lie inside the raster, otherwise stats would be partial
-            const bool inside = std::all_of(parts.begin(), parts.end(), [&](const Forest* f) {
+            if (r10.nBands != static_cast<int>(sentinel::Count10))
+                throw std::runtime_error("Expected " + std::to_string(sentinel::Count10) + " bands: " + pair.path10);
+            if (r20.nBands != static_cast<int>(sentinel::Count20))
+                throw std::runtime_error("Expected " + std::to_string(sentinel::Count20) + " bands: " + pair.path20);
+            if (r10.crsWkt != r20.crsWkt)
+                throw std::runtime_error("10m and 20m CRS differ for " + key);
+
+            OGRSpatialReference crs;
+            const std::string crsKey = crsKeyFromWkt(r10.crsWkt, crs, pair.path10);
+
+            const auto cit = cache.find(crsKey);          // find read-only
+            if (cit == cache.end()){
+                const size_t d = ++done;
+                throw std::runtime_error("CRS not in cache: " + crsKey);
+            }
+
+            const auto git = cit->second.groups.find(normalizeKey(key));
+            if (git == cit->second.groups.end()){
+                const size_t d = ++done;
+                continue;
+            }
+            const auto &parts = git->second;
+
+            const double xMin = r10.xMin;
+            const double xMax = r10.xMin + r10.nx * r10.pixelSize;
+            const double yMax = r10.yMax;
+            const double yMin = r10.yMax - r10.ny * r10.pixelSize;
+
+            const bool inside = std::all_of(parts.begin(), parts.end(), [&](const Forest *f) {
                 return f->getRawMinX() >= xMin && f->getRawMaxX() <= xMax &&
                        f->getRawMinY() >= yMin && f->getRawMaxY() <= yMax;
             });
-            if (!inside) continue;
+            if (!inside){
+                const size_t d = ++done;
+                continue;
+            }
 
-            for (Forest* f : parts) f->createMask();
+            for (Forest *f : parts) f->createMask();
 
-            FeatureVectorSat fv = computeFeatureVectorSat(r10, r20, parts);
-            exportFeatureVectorSatCSV(fv, csvFile);
+            results[i] = computeFeatureVectorSat(r10, r20, parts);
+
+            const size_t d = ++done;
+
+#pragma omp critical(progress)
+            {
+                std::cerr << "\r[" << d << "/" << total << "] " << key << std::flush;
+            }
+        }
+        catch (...)
+        {
+#pragma omp critical(err)
+            if (!firstError) firstError = std::current_exception();
         }
     }
+
+    std::cerr << "\n";
+    
+    if (firstError) std::rethrow_exception(firstError);
+
+    for (const auto &r : results)
+        if (r) exportFeatureVectorSatCSV(*r, csvFile);
 
     return 0;
 }
