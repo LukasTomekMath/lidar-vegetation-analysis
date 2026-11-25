@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string>
 #include <filesystem>
+#include <omp.h>
 
 namespace fs = std::filesystem;
 
@@ -101,10 +102,21 @@ int createVegetationIndices(const std::string tifDir, const std::string outputDi
 
     printCurrentIndices();
 
-    std::cout << "Reading tifs.\n";
-    for(const auto&[key, pair] : collectSatPairs(tifDir)){
+    const auto pairs = collectSatPairs(tifDir);
+    const size_t total = pairs.size();
+    size_t done = 0;
+
+    auto progress = [&](const std::string &key){
+        std::cerr << "\r\033[K[" << ++done << "/" << total << "] " << key << std::flush;
+    };
+    auto logLine = [&](const std::string &msg){
+        std::cerr << "\r\033[K" << msg << "\n";
+    };
+
+    for(const auto&[key, pair] : pairs){
         if (pair.path10.empty() || pair.path20.empty()){
-            std::cerr << "Skipping " << key << ": missing 10m or 20m file\n";
+            logLine("Skipping " + key + ": missing 10m or 20m file");
+            progress(key);
             continue;
         }
 
@@ -121,29 +133,31 @@ int createVegetationIndices(const std::string tifDir, const std::string outputDi
         const size_t n = (size_t)r10.nx * r10.ny;
         std::vector<std::vector<float>> out(VI::Count, std::vector<float>(n, -9999.f));
 
+#pragma omp parallel for schedule(static)
         for (int y = 0; y < r10.ny; y++){
             for (int x = 0; x < r10.nx; x++){
-                    const size_t i10 = (size_t)y * r10.nx + x;
-                    const size_t i20 = (size_t)(y / 2) * r20.nx + (x / 2);
+                const size_t i10 = (size_t)y * r10.nx + x;
+                const size_t i20 = (size_t)(y / 2) * r20.nx + (x / 2);
 
-                    Pixel p = makePixel(r10, r20, i10, i20);
+                Pixel p = makePixel(r10, r20, i10, i20);
 
-                    for(size_t k = 0; k < VI::Count; k++){
-                        double v = VI::funcs[k](p);
-                        if(std::isfinite(v))
-                            out[k][i10] = (float)v;
-                    }
+                for(size_t k = 0; k < VI::Count; k++){
+                    double v = VI::funcs[k](p);
+                    if(std::isfinite(v))
+                        out[k][i10] = (float)v;
+                }
             }
         }
 
         const double gt[6] = { r10.xMin, r10.pixelSize, 0.0, r10.yMax, 0.0, -r10.pixelSize };
         const std::string outPath = (fs::u8path(outputDir) / fs::u8path(key + ".tif")).u8string();
-        
+
         if(!writeIndexTiff(outPath, out, r10.nx, r10.ny, gt, r10.crsWkt.c_str()))
             throw std::runtime_error("Write failed: " + outPath);
-        else
-            std::cout << "Written: " << key << std::endl;
+
+        progress(key);
     }
+    std::cerr << "\n";
 
     return 0;
 }
