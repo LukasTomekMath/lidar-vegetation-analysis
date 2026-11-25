@@ -238,7 +238,7 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
     const size_t total = work.size();
 
 #pragma omp parallel for schedule(dynamic)
-    for (long long i = 0; i < work.size(); ++i)
+    for (long i = 0; i < work.size(); ++i)
     {
         try
         {
@@ -320,53 +320,106 @@ int segmentFeaturesVI(const std::string shpDir, const std::string tifDirSat, con
     const std::string csvFile = getOutputName(tifDirSat, outputSat);
     initializeFeatureVectorVICSV(csvFile);
 
+    // serial setup: work list + CRS cache
+    struct Job { std::string path, key; };
+    std::vector<Job> work;
+    std::map<std::string, ForestSet> cache;
+
     for (const auto &entry : fs::directory_iterator(fs::u8path(tifDirSat)))
     {
         if (!entry.is_regular_file() || entry.path().extension() != ".tif")
             continue;
 
-        const std::string tifPath = entry.path().u8string();
-        const std::string tifKey  = normalizeKey(entry.path().stem().u8string());
+        Job job{ entry.path().u8string(), normalizeKey(entry.path().stem().u8string()) };
 
-        RasterData raster = readGeoTiff(tifPath);
-        if (raster.nBands != static_cast<int>(VI::Count))
-            throw std::runtime_error("Expected " + std::to_string(VI::Count) + " bands: " + tifPath);
+        OGRSpatialReference crs;
+        const std::string crsKey = crsKeyFromWkt(readCrsWkt(job.path), crs, job.path);
+        if (!cache.count(crsKey))
+            cache.emplace(crsKey, loadForestSet(shpDir, crs));
 
-        OGRSpatialReference rasterCRS;
-        if (raster.crsWkt.empty() || rasterCRS.importFromWkt(raster.crsWkt.c_str()) != OGRERR_NONE)
-            throw std::runtime_error("Unknown raster CRS: " + tifPath);
-
-        const double xMin = raster.xMin;
-        const double xMax = raster.xMin + raster.nx * raster.pixelSize;
-        const double yMax = raster.yMax;
-        const double yMin = raster.yMax - raster.ny * raster.pixelSize;
-
-        ForestManager forestManager(rasterCRS);
-        forestManager.loadDirectory(shpDir);
-
-        std::map<std::string, std::vector<Forest*>> groups;
-        for (auto &forest : forestManager.getForests())
-        {
-            forest.calculateForestArea();
-            forest.findBoundingBox();
-            groups[normalizeKey(forest.getName() + "_" + forest.getSegment())].push_back(&forest);
-        }
-
-        auto it = groups.find(tifKey);
-        if (it == groups.end()) { std::cerr << "No segment for " << tifKey << "\n"; continue; }
-        auto &parts = it->second;
-
-        const bool inside = std::all_of(parts.begin(), parts.end(), [&](const Forest *f) {
-            return f->getRawMinX() >= xMin && f->getRawMaxX() <= xMax &&
-                   f->getRawMinY() >= yMin && f->getRawMaxY() <= yMax;
-        });
-        if (!inside) { std::cerr << "Outside raster: " << tifKey << "\n"; continue; }
-
-        for (Forest *f : parts) f->createMask();
-
-        FeatureVectorVI fv = computeFeatureVectorVI(raster, parts);
-        exportFeatureVectorVICSV(fv, csvFile);
+        work.push_back(std::move(job));
     }
+    // directory_iterator order is unspecified: sort for deterministic CSV
+    std::sort(work.begin(), work.end(), [](const Job &a, const Job &b) { return a.key < b.key; });
+    // cache is read-only from here on
+
+    std::vector<std::optional<FeatureVectorVI>> results(work.size());
+    std::exception_ptr firstError = nullptr;
+    std::atomic<size_t> done{0};
+    const long long total = static_cast<long long>(work.size());
+
+    // all cerr output goes through critical(io): one lock, no interleaving
+    auto logLine = [&](const std::string &msg) {
+#pragma omp critical(io)
+        std::cerr << "\r\033[K" << msg << "\n";
+    };
+    auto progress = [&](const std::string &key) {
+#pragma omp critical(io)
+        std::cerr << "\r\033[K[" << ++done << "/" << total << "] " << key << std::flush;
+    };
+
+#pragma omp parallel for schedule(dynamic)
+    for (long long i = 0; i < total; ++i)
+    {
+        const Job &job = work[i];
+        try
+        {
+            RasterData raster = readGeoTiff(job.path);
+            if (raster.nBands != static_cast<int>(VI::Count))
+                throw std::runtime_error("Expected " + std::to_string(VI::Count) + " bands: " + job.path);
+
+            OGRSpatialReference crs;
+            const std::string crsKey = crsKeyFromWkt(raster.crsWkt, crs, job.path);
+
+            const auto cit = cache.find(crsKey);
+            if (cit == cache.end())
+                throw std::runtime_error("CRS not in cache: " + crsKey);
+
+            const auto git = cit->second.groups.find(job.key);
+            if (git == cit->second.groups.end())
+            {
+                logLine("No segment for " + job.key);
+                progress(job.key);
+                continue;
+            }
+            const auto &parts = git->second;
+
+            const double xMin = raster.xMin;
+            const double xMax = raster.xMin + raster.nx * raster.pixelSize;
+            const double yMax = raster.yMax;
+            const double yMin = raster.yMax - raster.ny * raster.pixelSize;
+
+            const bool inside = std::all_of(parts.begin(), parts.end(), [&](const Forest *f) {
+                return f->getRawMinX() >= xMin && f->getRawMaxX() <= xMax &&
+                       f->getRawMinY() >= yMin && f->getRawMaxY() <= yMax;
+            });
+            if (!inside)
+            {
+                logLine("Outside raster: " + job.key);
+                progress(job.key);
+                continue;
+            }
+
+            for (Forest *f : parts) f->createMask();
+
+            results[i] = computeFeatureVectorVI(raster, parts);   // own slot, no race
+            progress(job.key);
+        }
+        catch (...)
+        {
+#pragma omp critical(err)
+            if (!firstError) firstError = std::current_exception();
+            progress(job.key);   // count failed tifs too
+        }
+    }
+    std::cerr << "\n";
+
+    if (firstError) std::rethrow_exception(firstError);
+
+    // serial write, tif order
+    for (const auto &r : results)
+        if (r) exportFeatureVectorVICSV(*r, csvFile);
+
     return 0;
 }
 
