@@ -87,22 +87,22 @@ std::map<std::string, SatTilePair> collectSatPairs(const std::string &dir)
         if (!entry.is_regular_file())
             continue;
 
-        auto ext = entry.path().extension().string();
+        auto ext = entry.path().extension().u8string();
         std::transform(ext.begin(), ext.end(), ext.begin(),
                        [](unsigned char c) { return std::tolower(c); });
         if (ext != ".tif" && ext != ".tiff")
             continue;
 
-        const std::string stem = entry.path().stem().string();
+        const std::string stem = entry.path().stem().u8string();
         auto endsWith = [&](const std::string &suffix) {
             return stem.size() > suffix.size() &&
                    stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0;
         };
 
         if (endsWith("_10m"))
-            pairs[stem.substr(0, stem.size() - 4)].path10 = entry.path().string();
+            pairs[stem.substr(0, stem.size() - 4)].path10 = entry.path().u8string();
         else if (endsWith("_20m"))
-            pairs[stem.substr(0, stem.size() - 4)].path20 = entry.path().string();
+            pairs[stem.substr(0, stem.size() - 4)].path20 = entry.path().u8string();
     }
     return pairs;
 }
