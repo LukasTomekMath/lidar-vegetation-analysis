@@ -82,7 +82,7 @@ ForestSet loadForestSet(const std::string &shpDir, const OGRSpatialReference &cr
 std::map<std::string, SatTilePair> collectSatPairs(const std::string &dir)
 {
     std::map<std::string, SatTilePair> pairs;
-    for (const auto &entry : fs::directory_iterator(dir))
+    for (const auto &entry : fs::directory_iterator(fs::u8path(dir)))
     {
         if (!entry.is_regular_file())
             continue;
@@ -233,9 +233,18 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
 
     std::exception_ptr firstError = nullptr;
     std::vector<std::optional<FeatureVectorSat>> results(work.size());
-
     std::atomic<size_t> done{0};
     const size_t total = work.size();
+
+        // all cerr output goes through critical(io): one lock, no interleaving
+    auto logLine = [&](const std::string &msg) {
+#pragma omp critical(io)
+        std::cerr << "\r\033[K" << msg << "\n";
+    };
+    auto progress = [&](const std::string &key) {
+#pragma omp critical(io)
+        std::cerr << "\r\033[K[" << ++done << "/" << total << "] " << key << std::flush;
+    };
 
 #pragma omp parallel for schedule(dynamic)
     for (long i = 0; i < work.size(); ++i)
@@ -258,14 +267,13 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
             const std::string crsKey = crsKeyFromWkt(r10.crsWkt, crs, pair.path10);
 
             const auto cit = cache.find(crsKey);          // find read-only
-            if (cit == cache.end()){
-                const size_t d = ++done;
+            if (cit == cache.end())
                 throw std::runtime_error("CRS not in cache: " + crsKey);
-            }
 
             const auto git = cit->second.groups.find(normalizeKey(key));
             if (git == cit->second.groups.end()){
-                const size_t d = ++done;
+                logLine("No segment for " + key);
+                progress(key);
                 continue;
             }
             const auto &parts = git->second;
@@ -280,7 +288,8 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
                        f->getRawMinY() >= yMin && f->getRawMaxY() <= yMax;
             });
             if (!inside){
-                const size_t d = ++done;
+                logLine("Outside raster: " + key);
+                progress(key);
                 continue;
             }
 
@@ -288,11 +297,9 @@ int segmentFeaturesSat(const std::string shpDir, const std::string tifDirSat, co
 
             results[i] = computeFeatureVectorSat(r10, r20, parts);
 
-            const size_t d = ++done;
-
 #pragma omp critical(progress)
             {
-                std::cerr << "\r[" << d << "/" << total << "] " << key << std::flush;
+                progress(key);
             }
         }
         catch (...)

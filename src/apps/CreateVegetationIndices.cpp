@@ -18,7 +18,7 @@ struct SatTilePair
 static std::map<std::string, SatTilePair> collectSatPairs(const std::string &dir)
 {
     std::map<std::string, SatTilePair> pairs;
-    for (const auto &entry : fs::directory_iterator(dir))
+    for (const auto &entry : fs::directory_iterator(fs::u8path(dir)))
     {
         if (!entry.is_regular_file())
             continue;
